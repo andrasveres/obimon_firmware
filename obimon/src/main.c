@@ -342,71 +342,71 @@ MAIN_RETURN main(void)
     plog("-------------")
     plog("Boot");    
 
-//    BuildToHex();
-//
-//    InitT1();
-//            
-//    InitInternalADC();
-//        
-//    //InitT2();
-//
-//    // TEST
-//    OSCCONbits.POSCEN = 0; // Primary oscillator disabled during Sleep mode            
-//    
-//    InitUART2(115200, FCY); // used for BLE
-//    __delay_ms(10);
-//        
-//    plog("InitRN4020");    
-//    InitRN4020();
-//    plog("InitRN4020 finished");
-//
-//    //sendbt("S-,Obi");
-//    plog("V sent");
-//    sendbt("V");  
-//    WaitLine();
-//    
-//    strcpy(btversion, GetRxLine());
-//    ReleaseRxLine();
-//    plog("RN4020 version %s", btversion);
-//    
-//    if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0 ||
-//       strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0) {
-//        plog("RN4020 needs upgrade =================================");
-//        WakeRN4020();
-//        __delay_ms(1000);
-//        RN4020OTA();
-//        
-//        int connected = 0;
-//        int lastcmd = 0;
-//        
-//        while(1) {
-//            char *b = WaitLine();
-//            if(b == NULL) continue;
-//            plog("%s", b);
-//
-//            if(strcmp(b,"Connected")==0) connected = 1;
-//            
-//            if(connected && strcmp(b,"CMD")==0) {
-//                plog("Upgrade OK -----------------");
-//                asm ("RESET");                
-//            }
-//            
-//            ReleaseRxLine();
-//        }
-//        
-//        //while(1);
-//        
-//    }
-//    
-//    CHGCUR_TRIS = 0;
-//    CHGCUR = 1; // 1 = 500mA, 0 = 100mA
-//    
-//    //DormantRN4020();
-//    //while(1);
-//        
-//    // if vdd is ok, we continue
-//    // if vdd is not ok we wait in loop and then do a system reset!
-//    BatCheck();
+    BuildToHex();
+
+    InitT1();
+            
+    InitInternalADC();
+        
+    //InitT2();
+
+    // TEST
+    OSCCONbits.POSCEN = 0; // Primary oscillator disabled during Sleep mode            
+    
+    InitUART2(115200, FCY); // used for BLE
+    __delay_ms(10);
+        
+    plog("InitRN4020");    
+    InitRN4020();
+    plog("InitRN4020 finished");
+
+    //sendbt("S-,Obi");
+    plog("V sent");
+    sendbt("V");  
+    WaitLine();
+    
+    strcpy(btversion, GetRxLine());
+    ReleaseRxLine();
+    plog("RN4020 version %s", btversion);
+    
+    if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0 ||
+       strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0) {
+        plog("RN4020 needs upgrade =================================");
+        WakeRN4020();
+        __delay_ms(1000);
+        RN4020OTA();
+        
+        int connected = 0;
+        int lastcmd = 0;
+        
+        while(1) {
+            char *b = WaitLine();
+            if(b == NULL) continue;
+            plog("%s", b);
+
+            if(strcmp(b,"Connected")==0) connected = 1;
+            
+            if(connected && strcmp(b,"CMD")==0) {
+                plog("Upgrade OK -----------------");
+                asm ("RESET");                
+            }
+            
+            ReleaseRxLine();
+        }
+        
+        //while(1);
+        
+    }
+    
+    CHGCUR_TRIS = 0;
+    CHGCUR = 1; // 1 = 500mA, 0 = 100mA
+    
+    //DormantRN4020();
+    //while(1);
+        
+    // if vdd is ok, we continue
+    // if vdd is not ok we wait in loop and then do a system reset!
+    BatCheck();
 
     // we should read flash memory JEDEC (vendor and id)
     // microchip 25vf... is end-of-life! The others are all page write type
@@ -429,7 +429,7 @@ MAIN_RETURN main(void)
         //while(1);
     }
 
-    testflash();
+//    testflash();
 
     memptr = findmem();
     plog("Memptr %lu", memptr);
@@ -437,7 +437,7 @@ MAIN_RETURN main(void)
     ReadConfigAll();
    
     plog("ReadConf OK");    
-    while(1);        
+//    while(1);        
     
     initadcspi();
         
@@ -559,6 +559,7 @@ MAIN_RETURN main(void)
 
         }
 
+        
         if(!t1intflag) {
             if(USB_BUS_SENSE==0) {
                 //log("RI %u %u",U2STAbits.RIDLE, U2STAbits.URXDA);

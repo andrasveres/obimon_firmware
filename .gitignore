@@ -1,0 +1,13 @@
+/obimon/obimon.X/build/
+/obimon/obimon.X/dist/
+/obimon-usb-bootloader/MPLAB.X/build/
+/obimon-usb-bootloader/MPLAB.X/dist/
+
+
+obimon-usb-bootloader/MPLAB.X/nbproject
+!obimon-usb-bootloader/MPLAB.X/nbproject/configurations.xml
+!obimon-usb-bootloader/MPLAB.X/nbproject/project.xml
+
+obimon/obimon.X/nbproject
+!obimon/obimon.X/nbproject/configurations.xml
+!obimon/obimon.X/nbproject/project.xml
