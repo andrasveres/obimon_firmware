@@ -356,10 +356,25 @@ MAIN_RETURN main(void)
     InitUART2(115200, FCY); // used for BLE
     __delay_ms(10);
         
-    plog("InitRN4020");    
-    InitRN4020();
+    do {
+        plog("InitRN4020");    
+        int ret = InitRN4020();
+        
+        if(ret == 0) break;
+        
+        plog("RN init err %i", ret);
+        DormantRN4020();
+        __delay_ms(1000);
+ 
+        
+    } while(1);
+    
     plog("InitRN4020 finished");
 
+    //sendbt("D");  
+    //WaitLine();
+    //plog("D: %s", GetRxLine());
+    
     //sendbt("S-,Obi");
     plog("V sent");
     sendbt("V");  
@@ -374,6 +389,12 @@ MAIN_RETURN main(void)
         plog("RN4020 needs upgrade =================================");
         WakeRN4020();
         __delay_ms(1000);
+        
+        //greenpattern = 0b0000000000000000000000001010101;
+        //greenpattern = 0b0001000000100000010000001010101;
+        LED_On(RED);
+        LED_On(GREEN);
+        
         RN4020OTA();
         
         int connected = 0;
@@ -431,13 +452,13 @@ MAIN_RETURN main(void)
 
 //    testflash();
 
-    memptr = findmem();
-    plog("Memptr %lu", memptr);
-
     ReadConfigAll();
    
     plog("ReadConf OK");    
 //    while(1);        
+
+    memptr = findmem();
+    plog("Memptr %lu", memptr);
     
     initadcspi();
         

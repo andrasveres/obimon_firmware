@@ -251,7 +251,7 @@ void SlowClock();
 void ChangeName(char *n);
 void ChangeGroup(char *n);
 
-void InitRN4020();
+int InitRN4020();
 void WakeRN4020();
 void DormantRN4020();
 

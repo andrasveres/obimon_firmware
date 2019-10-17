@@ -533,7 +533,7 @@ void ProcRx() {
     }
 }
 
-void InitRN4020() {
+int InitRN4020() {
     
     plog("Wake RN4020");
     WakeRN4020();
@@ -551,32 +551,50 @@ void InitRN4020() {
     __delay_ms(100);
 
     WaitResp();
-    if(btresp != AOK) plog("ERR 2");
-
+    if(btresp != AOK) {
+        return 2;
+    }
+    
     sendbt("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
     WaitResp();
-    if(btresp != AOK) plog("ERR 3");
+    if(btresp != AOK) {
+        return 3;
+    }
 
+        
     //sendbt("SR,20000000"); //   set the RN4020 module as a peripheral and auto advertise
     sendbt("SR,00000100"); //  unfiltered observer    
     WaitResp();
-    if(btresp != AOK) plog("ERR 4");
+    if(btresp != AOK) {
+        return 4;
+    }
     
     sendbt("PZ"); //  Clean private Service
     WaitResp();
-    if(btresp != AOK) plog("ERR 5");
+    if(btresp != AOK) {
+        return 5;
+    }
 
     send("PS,%s\n", private_service); // set private service UUID
     WaitResp();
-    if(btresp != AOK) plog("ERR 6");
+    if(btresp != AOK) return 6;
 
     send("PC,%s,12,05\n",ch_gsr); // set characterictic,readable+notify, 2 bytes
     WaitResp();
-    if(btresp != AOK) plog("ERR 7");
+    if(btresp != AOK) return 7;
     
     send("U"); // unbond?
     WaitResp();
-    if(btresp != AOK) plog("ERR 8");
+    if(btresp != AOK) {
+        plog("Warning Unbind cmd failed");
+    }
+    
+      
+    send("Q,1"); // BT bonding statusﬂ
+    WaitResp();
+    if(btresp != AOK) {
+        plog("Warning command failed");
+    }
     
     plog("now reboot bt");
     
@@ -592,6 +610,8 @@ void InitRN4020() {
     FindHandle(ch_gsr, handle_gsr);
     //println("+"); //  DEBUG echo
 
+    // OK
+    return 0;
 }
 
 void SetLedPattern() {
@@ -777,7 +797,10 @@ void WriteConfig(char conf) {
 
 // Read all config settings
 void ReadConfigAll() {
+    plog("a");
     ReadConfig(CONF_NAME);
+    plog("b");
+
     ReadConfig(CONF_CALIBRATE);
 }
 
@@ -951,7 +974,8 @@ void BuildToHex() {
 }
 
 void Adverstise() {
-    send("A,0050,0060"); // advesrtise interval 80ms for 81 sec (so that only sent once)
+    //send("A,0050,0060"); // advesrtise interval 80ms for 81 sec (so that only sent once)
+    send("A,0050,07d0"); // interval 80 msec, duration 2 sec 
 }
 
 void SendTimestamp() {
