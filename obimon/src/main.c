@@ -385,7 +385,8 @@ MAIN_RETURN main(void)
     plog("RN4020 version %s", btversion);
     
     if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0 ||
-       strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0) {
+       strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0 || 
+       strcmp(btversion, "MCHP BTLE v1.23.5 8/7/2015")==0) {
         plog("RN4020 needs upgrade =================================");
         WakeRN4020();
         __delay_ms(1000);
