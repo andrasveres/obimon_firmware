@@ -65,7 +65,10 @@ unsigned long dumpaddr=0;
 void SleepObi();
 
 
+extern char handle_gsr[5];
 
+extern int n_blocks_req;
+extern char* ch_data;
 
 
 char is=0;
@@ -226,6 +229,10 @@ unsigned long CalcGsr(unsigned long h) {
     
     double alpha;
     alpha = 100.0/(100+680.0);
+    
+    
+    // TEST =======================
+    alpha = 100.0 / (100.0 + 3000.0);
 
     double R = 100e3;
     //double R = 100e3;
@@ -238,38 +245,38 @@ unsigned long CalcGsr(unsigned long h) {
     return (unsigned long)(gsr*1000);
 }
 
-void printstatusreg() {
-    int s1 = readstatus();
-    int s2 = readstatus2();
-    int s3 = readstatus3();
-
-    if(s1 & 1) plog("BUSY");
-    if(s1 & 2) plog("WEL");
-    if(s1 & 4) plog("BP0");
-    if(s1 & 8) plog("BP2");
-    if(s1 & 16) plog("BP3");
-    if(s1 & 32) plog("TB protect from bottom");
-    if(s1 & 64) plog("4kB protection") else plog("64kB protection")
-    if(s1 & 128) plog("SRP0=1 WP input can protect SR or OTP lockdown") else plog("SRP0=0 WP input has no effect or power supply lock down mode");
-    
-    if(s2 & 1) plog("SRP1=1 WP input protects status register") else  plog("SRP1=0 Power Supply Lock Down or OTP Lock Down");
-    if(s2 & 2) plog("QE");
-    if(s2 & 4) plog("LB0");
-    if(s2 & 8) plog("LB1");
-    if(s2 & 16) plog("LB2");
-    if(s2 & 32) plog("LB3");
-    if(s2 & 64) plog("CMP Inverted protection map");
-    if(s2 & 128) plog("SUS Erase/Program suspended");
-
-    if(s3 & 1) plog("LC0");
-    if(s3 & 2) plog("LC0");
-    if(s3 & 4) plog("LC0");
-    if(s3 & 8) plog("LC0");
-    if(s3 & 16) plog("Burst wrap disabled") else plog("Burst wrap enabled");
-    if(s3 & 32) plog("W4");
-    if(s3 & 64) plog("W5");
-    
-}
+//void printstatusreg() {
+//    int s1 = readstatus();
+//    int s2 = readstatus2();
+//    int s3 = readstatus3();
+//
+//    if(s1 & 1) plog("BUSY");
+//    if(s1 & 2) plog("WEL");
+//    if(s1 & 4) plog("BP0");
+//    if(s1 & 8) plog("BP2");
+//    if(s1 & 16) plog("BP3");
+//    if(s1 & 32) plog("TB protect from bottom");
+//    if(s1 & 64) plog("4kB protection") else plog("64kB protection")
+//    if(s1 & 128) plog("SRP0=1 WP input can protect SR or OTP lockdown") else plog("SRP0=0 WP input has no effect or power supply lock down mode");
+//    
+//    if(s2 & 1) plog("SRP1=1 WP input protects status register") else  plog("SRP1=0 Power Supply Lock Down or OTP Lock Down");
+//    if(s2 & 2) plog("QE");
+//    if(s2 & 4) plog("LB0");
+//    if(s2 & 8) plog("LB1");
+//    if(s2 & 16) plog("LB2");
+//    if(s2 & 32) plog("LB3");
+//    if(s2 & 64) plog("CMP Inverted protection map");
+//    if(s2 & 128) plog("SUS Erase/Program suspended");
+//
+//    if(s3 & 1) plog("LC0");
+//    if(s3 & 2) plog("LC0");
+//    if(s3 & 4) plog("LC0");
+//    if(s3 & 8) plog("LC0");
+//    if(s3 & 16) plog("Burst wrap disabled") else plog("Burst wrap enabled");
+//    if(s3 & 32) plog("W4");
+//    if(s3 & 64) plog("W5");
+//    
+//}
 
 void testflash() {
     unsigned long i, j;
@@ -277,7 +284,7 @@ void testflash() {
 
     plog("TEST FLASH ==============================");
 
-    printstatusreg();
+    //printstatusreg();
     
    // plog("Erase flash");
     //eraseDevice();
@@ -341,6 +348,26 @@ MAIN_RETURN main(void)
     InitUART1(115200, FCY); // used for logging
     plog("-------------")
     plog("Boot");    
+    
+    initflashspi();    
+
+    unsigned char lis = 0;
+    
+    //InitSPI1_TEST(0,0,1,0);
+    
+    if(lis_whoami()==51) {
+        plog("LIS detected");
+        lis = 1;
+        
+        lis_cfg();
+        lis_reg23();
+        lis_hpfilter();
+    }
+    
+    //while(1) {
+    //    lis_readacc();
+    //    __delay_ms(100);
+    //}
 
     BuildToHex();
 
@@ -384,9 +411,14 @@ MAIN_RETURN main(void)
     ReleaseRxLine();
     plog("RN4020 version %s", btversion);
     
-    if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0 ||
-       strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0 || 
-       strcmp(btversion, "MCHP BTLE v1.23.5 8/7/2015")==0) {
+    int btv = 0;
+    if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0) btv=110;
+    if(strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0) btv = 120; 
+    if(strcmp(btversion, "MCHP BTLE v1.23.5 8/7/2015")==0) btv = 123;
+    if(strcmp(btversion, "MCHP BTLE v1.33.4 BEC 11/24/2015")==0) btv = 133;
+    
+    if(btv<123) {
+    
         plog("RN4020 needs upgrade =================================");
         WakeRN4020();
         __delay_ms(1000);
@@ -420,6 +452,84 @@ MAIN_RETURN main(void)
         
     }
     
+    if(btv<133) ConfRN4020();
+    else ConfRN4020_new();
+    
+
+    // TEST
+//    unsigned char ii=0;
+//    while(1) {
+//        
+//        //__delay_ms(1000);
+//        WaitResp(); // wait for BT event up to 1 sec
+//                
+//        if(n_blocks_req>0) {
+//            plog("----------------- SEND BLOCK");
+//            int i=0;
+//            for(i=0; i<n_blocks_req; i++) {
+//                //send("SHW,%s,%02x", handle_gsr, ii);   
+//                send("SUW,%s,000102030405060708090a0b0c0d0e0f%04x", ch_data, i); // here we use long format and not the handle! We should change it to handle
+//                WaitResp();
+//                if(btresp != AOK) {
+//                   plog("ERR resp");
+//                }
+//                
+//                __delay_ms(10);
+//            }
+//            
+//            n_blocks_req = 0;
+//        }                
+//                
+//        plog("X");
+//        
+//        send("Y"); 
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("ERR resp");
+//        }
+//
+//        send("NZ"); 
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("ERR resp");
+//        }
+//        
+//        send("NA,ff%02x%02x%02x%02x", ii, ii+1, ii+2, ii+3); 
+//        send("NA,0944617665"); 
+//
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("ERR resp");
+//        }
+//
+//        
+//        nsent++;
+//        //send("A,0050,07d0"); // interval 80 msec, duration 2 sec 
+//        send("A");
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("ERR resp");
+//        }
+//
+//        
+//        send("SHW,%s,%02x", handle_gsr, ii);        
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("ERR resp");
+//        }
+//        
+//        send("Q,1"); // BT bonding statusß
+//        WaitResp();
+//        if(btresp != AOK) {
+//           plog("Warning command failed");
+//        }
+//    
+//        ii++;
+//        
+//        
+//
+//    }
+    
     CHGCUR_TRIS = 0;
     CHGCUR = 1; // 1 = 500mA, 0 = 100mA
     
@@ -435,7 +545,6 @@ MAIN_RETURN main(void)
     // need to rewrite write operation to page program
 
     // Check if we can read from flash memory    
-    initflashspi();    
     releasepowerdown();
     flashreset();
     unsigned char manufacturer, device;
@@ -458,16 +567,16 @@ MAIN_RETURN main(void)
     plog("ReadConf OK");    
 //    while(1);        
 
-    memptr = findmem();
-    plog("Memptr %lu", memptr);
+    // = findmem();
+    //plog("Memptr %lu", memptr);
     
     initadcspi();
         
     plog("USB %u\n", USB_BUS_SENSE);
     
-    unsigned long maxG = 0;  
-    unsigned long minG = 1000000;
-    int nG=0;
+    //unsigned long maxG = 0;  
+    //unsigned long minG = 1000000;
+    //int nG=0;
     
     //pageprogram(50000, page, 1);
     
@@ -626,10 +735,19 @@ MAIN_RETURN main(void)
             if(G>50 && G<140000) {
                 valid = true;
                 ninvalid = 0;              
+
+                //plog("G %lu", G);
+
+                if(lis) {
+                    acc=lis_readacc();          
+                    if(acc>maxacc) maxacc = acc;
+                }
                 
-                if(G>maxG) maxG = G;
-                if(G<minG) minG = G;
-                nG ++;
+                //plog("GG %i %lu", acc, G);
+
+                //if(G>maxG) maxG = G;
+                //if(G<minG) minG = G;
+                //nG ++;
             } else {
                 ninvalid++;
                 //log("ninvalid %u %lu", ninvalid, G);
@@ -639,7 +757,10 @@ MAIN_RETURN main(void)
         }
 
         if(tick % (32768*8) == 32768*2) SendStat();
-        else if(valid) if (tick % (32768/2) == 0)SendGsr(G);
+        else if(valid) if (tick % (32768/2) == 0) {
+            SendGsr(G,maxacc);
+            maxacc=0;
+        }
                 
         if(valid && USB_BUS_SENSE==0 && needSync && (role == ROLE_SYNC_DEST)) {
             WaitForTimestamp();  
@@ -681,8 +802,10 @@ MAIN_RETURN main(void)
 
             //waitbusy();
 
+            unsigned long d = G | ( ((unsigned long)acc)<<24 );
+            
             // write gsr data to flash
-            memcpy(page+npage, (unsigned char*)(&G), 4);
+            memcpy(page+npage, (unsigned char*)(&d), 4);
             npage += 4;
             
             // just filled a page
@@ -721,9 +844,9 @@ MAIN_RETURN main(void)
             }
             //WriteLogFlash();
             
-            minG = 10000000;
-            maxG = 0;
-            nG = 0;
+            //minG = 10000000;
+            //maxG = 0;
+            //nG = 0;
             
             if(USB_BUS_SENSE) {
                 uptime = 0;
