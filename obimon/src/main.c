@@ -70,6 +70,8 @@ extern char handle_gsr[5];
 extern int n_blocks_req;
 extern char* ch_data;
 
+extern int sessionid;
+extern unsigned long dumping;
 
 char is=0;
 
@@ -343,6 +345,36 @@ MAIN_RETURN main(void)
     LED_On(RED);
     __delay_ms(100);
     LED_Off(RED);
+    
+//    { // TEST THE RTC CLOCK
+//        TRISCbits.TRISC6 = 0;
+//        PORTCbits.RC6 = 1;
+//        
+//        // timer setup
+//        T1CON = 0x00; //Stops the Timer1 and reset control reg.
+//        TMR1 = 0x00; //Clear contents of the timer register
+//        PR1 = 32768 / DT; //Load the Period register
+//        IPC0bits.T1IP = 7; // Prioty 7 highest
+//
+//        IFS0bits.T1IF = 0; //Clear the Timer1 interrupt status flag
+//        IEC0bits.T1IE = 0; //Disable Timer1 interrupts
+//        T1CONbits.TCS = 1; // external clock source
+//        T1CONbits.TCKPS = 0b00;
+//        T1CONbits.TSYNC = 0;
+//            
+//        T1CONbits.TON = 1; //Start Timer1 
+//    
+//        unsigned int t;
+//        while(1) {
+//            while(t == TMR1);
+//            
+//            t = TMR1;
+//            
+//            PORTCbits.RC6 = 1;
+//            __delay_us(10);
+//            PORTCbits.RC6 = 0;
+//        }
+//    }
     
     //InitUART2(9600, FCY);
     InitUART1(115200, FCY); // used for logging
@@ -640,6 +672,9 @@ MAIN_RETURN main(void)
 
     plog("Start loop");
     
+    
+    CreateNewSession(); // we maintain the same sessionid until the device is powered up or until a sync event
+    
     while(1)
     {
         int r = 0;
@@ -659,6 +694,11 @@ MAIN_RETURN main(void)
 
         if(USB_BUS_SENSE) {
             USBDeviceAttach();            
+        }
+        
+        if(dumping) {
+            if(USB_BUS_SENSE ==0) dumping = 0; // cancel dumping if disconnected
+            else continue; // else do not do the usual stuff, only dump!
         }
                 
         if(erasing) {
@@ -745,9 +785,6 @@ MAIN_RETURN main(void)
                 
                 //plog("GG %i %lu", acc, G);
 
-                //if(G>maxG) maxG = G;
-                //if(G<minG) minG = G;
-                //nG ++;
             } else {
                 ninvalid++;
                 //log("ninvalid %u %lu", ninvalid, G);
@@ -773,7 +810,7 @@ MAIN_RETURN main(void)
             needSync = 1;
             ninvalid=0;
             //lastSync = 0; // reset sync after sleep!
-            //log("Reset sync");
+            //log("Reset sync");            
         }
         
         sleeping = 0;
@@ -790,19 +827,26 @@ MAIN_RETURN main(void)
         if(valid) {
             uptime_meas++;
                        
+            unsigned long d = G | ( ((unsigned long)acc)<<24 );
+
             // write a header
             if(npage == 0) {
-               //unsigned long long x = 6;
-               //log("T %lu", memptr);
-               plog("Write header %llu", tick);
-                          
-               memcpy(page+npage, (unsigned char*) (&tick), 8);
-               npage += 8;
+                //unsigned long long x = 6;
+                //log("T %lu", memptr);
+                plog("Write header %llu", tick);
+                                
+                memcpy(page+npage, (unsigned char*) (&tick), 8);
+                npage += 8;               
+
+                // write sessionid to flash
+                memcpy(page+npage, (unsigned char*)(&sessionid), 4);
+                npage += 4;
+
+                
             }
 
             //waitbusy();
-
-            unsigned long d = G | ( ((unsigned long)acc)<<24 );
+          
             
             // write gsr data to flash
             memcpy(page+npage, (unsigned char*)(&d), 4);
@@ -814,7 +858,7 @@ MAIN_RETURN main(void)
 
                 plog("Page write %lu H %x %x %x %x", memptr, paddr[3], paddr[2], paddr[1], paddr[0]);
 
-                if(memptr < MEMSIZE) {
+                if(memptr < MEMSIZE-256) {
                     waitbusy();
                     pageprogram(memptr, page, 256);                                
                     memptr += 256;
@@ -921,6 +965,8 @@ void SleepObi() {
         if(tick > nextstat) { // every X sec
             //log("Check %llu", tick);
 
+            PowerOpamp(true);
+            
             DT = 8;
             
             SetLedPattern();
@@ -937,11 +983,15 @@ void SleepObi() {
             unsigned long long t1 = tick;
             while(tick - t1 < 50000) Sleep();
             
-            WriteLogFlash();
+            // WriteLogFlash();
             
-            PowerOpamp(true);
-                
             int r = triggeradc();
+            if(r ==0) {
+                plog("Unexpected, retrigger");
+                r = triggeradc();
+               if(r == 0) plog("Retr failed");
+            }
+
             Sleep();
             t1intflag = 0;                
             r = getadc();
