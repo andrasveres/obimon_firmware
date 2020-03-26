@@ -8,7 +8,7 @@
 #define D 10
 
 void initflashspi() {
-    InitSPI1(0,0);
+    InitSPI1();
     //InitSPI1(3,3);
 }
 
@@ -297,3 +297,115 @@ int eraseReady() {
     return (readstatus()&0x01)==0; 
 }
 
+unsigned char lis_whoami() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+
+    unsigned char b;
+    unsigned char cmd = 0x0f | 128;
+    bytetrx(cmd);
+    b= bytetrx(0);
+    __delay_us(D);
+    LIS_CS = 1;
+        
+    return b;
+
+}
+
+void lis_cfg() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(10);
+
+
+    bytetrx(0x20);
+    bytetrx(0b00100111); // 0010 = 10Hz, 0 - not low power, 111 = all axes enabled
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_hpfilter() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(10);
+
+
+    bytetrx(0x21);
+    bytetrx(0b00001000);
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_reg23() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(10);
+
+
+    bytetrx(0x23);
+    bytetrx(0b00001000); // endian + high res (endian must select endian)
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+int lis_readacc() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+
+    int x,y,z;
+    
+    bytetrx(0x28 | 128 | 64);
+    ((unsigned char *)&x)[0] = bytetrx(0); 
+    ((unsigned char *)&x)[1] = bytetrx(0); 
+    ((unsigned char *)&y)[0] = bytetrx(0); 
+    ((unsigned char *)&y)[1] = bytetrx(0); 
+    ((unsigned char *)&z)[0] = bytetrx(0); 
+    ((unsigned char *)&z)[1] = bytetrx(0); 
+        
+    x/=32;
+    y/=32;
+    z/=32;
+    
+    int a = x+y+z;
+    if(a<0) a=-a;
+    if(a>250) a=250;
+    
+    //plog("acc %i %i %i %i", x, y, z, a);
+    // plog("acc %i", a);
+
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+    return a;
+    
+}

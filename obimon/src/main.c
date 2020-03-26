@@ -64,6 +64,9 @@ unsigned long dumpaddr=0;
 
 void SleepObi();
 
+extern uint32_t acc;
+extern uint32_t maxacc;
+extern bool opamp;
 
 extern char handle_gsr[5];
 
@@ -73,43 +76,75 @@ extern char* ch_data;
 extern int sessionid;
 extern unsigned long dumping;
 
+uint64_t next_sample = 0;
+
+uint32_t cumulative_a = 0;
+uint8_t cumulative_n = 0;
+
 char is=0;
 
-unsigned long long nextAdjust = 0;
-unsigned long long adjust = 0; //96590;
-int adjustWith = 0; //1;
+uint16_t SLEEPRATE = 128;
+uint16_t SAMPLERATE = 8;
 
 void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
 {
-   IFS0bits.T1IF = 0; //Reset Timer1 interrupt flag
-      
-   tick += PR1+1; // update time first
-   
-   unsigned long long remainder = tick % (32768 / DT);
+    IFS0bits.T1IF = 0; //Reset Timer1 interrupt flag
 
-   PR1 = 32768 / DT - 1;
-   if(remainder>0) PR1 += 32768/DT - remainder;
+    tick += PR1 + 1; // update time first
 
-   if(tick>nextAdjust && adjust) {
-      while(TMR1==0);
-      
-      TMR1 += adjustWith;
-      nextAdjust += adjust;
-      
-      plog("ADJ");
-       
-   }
-   
-   //unsigned int tmr1 = TMR1;
-   // log("%u", tmr1);
+    //unsigned long long remainder = tick % (32768 / DT);
 
-   //log("R %llu %u", remainder, PR1);
+    //PR1 = 32768 / DT - 1;
+    PR1 = 32768 / SLEEPRATE - 1;
 
-   //ProcLeds();
-   
-   uptime++;
-   
-   t1intflag++;
+    uint32_t a;
+    
+    SAMPLERATE = 8;
+    
+    // check if we have new data
+    if(opamp) {
+        if (getcontadc(&a)) {
+
+            //plog("A %lu", a);
+
+            // if no subsampling
+            if (SAMPLERATE == 0) {
+                adc_put(a, tick);
+
+            } else {
+
+                cumulative_a += a;
+                cumulative_n++;
+
+                if (tick >= next_sample) {
+
+                    a = cumulative_a / cumulative_n;
+                    adc_put(a, next_sample);
+
+                    next_sample += 32768 / SAMPLERATE;
+
+                    cumulative_a = 0;
+                    cumulative_n = 0;
+
+
+                }
+            }
+        }
+
+    }
+
+
+    //if(remainder>0) PR1 += 32768/DT - remainder;
+
+    //unsigned int tmr1 = TMR1;
+    // log("%u", tmr1);
+
+    //log("R %llu %u", remainder, PR1);
+
+    //ProcLeds();
+
+    //uptime++;
+
 }
 
 void __attribute__((interrupt,auto_psv)) _T2Interrupt(void)
@@ -207,34 +242,12 @@ int randoffset=0;
 int randshift = 0;
 unsigned long CalcGsr(unsigned long h) {
     
-    if(role == ROLE_TEST) {
-        
-        if(randoffset == 0) {
-            randoffset = rand() % 32768;
-            randshift = rand() % 10000;
-        }
-        
-        float d;
-        unsigned long msec = (unsigned long) (tick % 327680LLU);
-        
-        //plog("msec %lu", msec);
-        float t = 1.0 * (msec+randoffset) / 32768.0 * 2.0 * 3.1415 / 10.0; 
-        
-        d = sinf(t) * 1000.0 + 2000 + randshift;
-        
-        //plog("TEST %f", t);
-        
-        //plog("D %f", d);
-        
-        return (unsigned long)d;
-    }
-    
     double alpha;
     alpha = 100.0/(100+680.0);
     
     
     // TEST =======================
-    alpha = 100.0 / (100.0 + 3000.0);
+    // alpha = 100.0 / (100.0 + 3000.0);
 
     double R = 100e3;
     //double R = 100e3;
@@ -280,50 +293,6 @@ unsigned long CalcGsr(unsigned long h) {
 //    
 //}
 
-void testflash() {
-    unsigned long i, j;
-    unsigned char data[16];
-
-    plog("TEST FLASH ==============================");
-
-    //printstatusreg();
-    
-   // plog("Erase flash");
-    //eraseDevice();
-    //plog("Erase flash END");
-    //while(1);
-    
-    for(i=65536; i<MEMSIZE; i+=65536L * 8L) {
-        plog("---- WRITE %lu", i);
-        memcpy(data, &j, 4);
-        //data[0]=1;
-        //data[1]=2;
-        //data[2]=3;
-        //data[3]=4;
-        pageprogram(i, data, 4);
-        //plog("WRITE %x %x %x %x", data[0], data[1], data[2], data[3]);
-
-        //__delay_ms(1000);
-        
-        readmem(i, data, 16);
-        plog("READ %x %x %x %x", data[0], data[1], data[2], data[3]);
-    }
- 
-    for(i=0; i<MEMSIZE; i+=65536 * 8L) {
-        //plog("----- %lu", i);
-        //readmem(i, data, 16);
-        //for(j=0; j<4; j++) plog("%x %c", data[j], data[j]);
-    }
-
-
-    LED_On(RED);
-    LED_On(GREEN);
-    __delay_ms(1000);
-    //erasing=1;
-    //eraseMem=0;
-    while(1);
-        
-}
 
 // ===========================================================================
 // ========================================= MAIN ============================
@@ -332,7 +301,7 @@ MAIN_RETURN main(void)
 {
     apiversion = 2;
     
-    uptime = 0;
+    //uptime = 0;
     uptime_meas = 0;
         
     tick = 0;
@@ -342,10 +311,11 @@ MAIN_RETURN main(void)
     __delay_ms(100);
     LED_Off(GREEN);
 
+    
     LED_On(RED);
     __delay_ms(100);
     LED_Off(RED);
-    
+
 //    { // TEST THE RTC CLOCK
 //        TRISCbits.TRISC6 = 0;
 //        PORTCbits.RC6 = 1;
@@ -404,10 +374,14 @@ MAIN_RETURN main(void)
     BuildToHex();
 
     InitT1();
+    enable_cont_adc();
             
     InitInternalADC();
         
     //InitT2();
+    
+    //initadcspi();
+    //test_cont();
 
     // TEST
     OSCCONbits.POSCEN = 0; // Primary oscillator disabled during Sleep mode            
@@ -602,17 +576,8 @@ MAIN_RETURN main(void)
     // = findmem();
     //plog("Memptr %lu", memptr);
     
-    initadcspi();
         
     plog("USB %u\n", USB_BUS_SENSE);
-    
-    //unsigned long maxG = 0;  
-    //unsigned long minG = 1000000;
-    //int nG=0;
-    
-    //pageprogram(50000, page, 1);
-    
-    //while(1);
 
     //RtccInitClock();
 
@@ -643,17 +608,16 @@ MAIN_RETURN main(void)
 
     //SetRTC();
 
-    int res = triggeradc();
-    if(res ==0) {
-        plog("Unexpected, retrigger");
-        res = triggeradc();
-        if(res == 0) plog("RetrX failed");
-    }
+//    int res = triggeradc();
+//    if(res ==0) {
+//        plog("Unexpected, retrigger");
+//        res = triggeradc();
+//        if(res == 0) plog("RetrX failed");
+//    }
 
     //initcontadc();
     
     rtcintflag = 0;
-    t1intflag = 0;
 
     if(waitbusy()) plog("BUSY");
     //clearblockprotection();
@@ -665,6 +629,7 @@ MAIN_RETURN main(void)
     
     int ninvalid=0;
     int nadcerr=0;
+    extern int measuring ;
 
     // Start USB
     SYSTEM_Initialize(SYSTEM_STATE_USB_START);   
@@ -672,13 +637,15 @@ MAIN_RETURN main(void)
 
     plog("Start loop");
     
+    unsigned long long last_stat = 0;
+    unsigned long long last_gsr_send = 0;
+    unsigned long long last_bat_check = 0;
     
-    CreateNewSession(); // we maintain the same sessionid until the device is powered up or until a sync event
+    
+    CreateNewSession(); // we maintain the same sessionid until the device is powered up
     
     while(1)
-    {
-        int r = 0;
-        
+    {        
         //U1OTGSTATbits.SESVD
         ProcRx();
         
@@ -731,141 +698,105 @@ MAIN_RETURN main(void)
         }
 
         
-        if(!t1intflag) {
-            if(USB_BUS_SENSE==0) {
-                //log("RI %u %u",U2STAbits.RIDLE, U2STAbits.URXDA);
-                //U2MODEbits.WAKE = 1;
-                if(RxIdle()) {
-                    //LED1_LAT=0; // led off
-                    Idle();
-                    //LED1_LAT=1; // led on                    
-                }
-            }
-            
-            continue;
-        }
+//        if(!t1intflag) {
+//            if(USB_BUS_SENSE==0) {
+//                //log("RI %u %u",U2STAbits.RIDLE, U2STAbits.URXDA);
+//                //U2MODEbits.WAKE = 1;
+//                if(RxIdle()) {
+//                    //LED1_LAT=0; // led off
+//                    Idle();
+//                    //LED1_LAT=1; // led on                    
+//                }
+//            }
+//            
+//            continue;
+//        }
 
         ProcLeds();   
-        
-        if(role == ROLE_SYNC_SOURCE && tick % 32768 == 0 && lastSync > 0) {
-            SendTimestamp();
-        }
 
-        //log("-");
+        // log("-");
 
-        if(t1intflag>1) plog("*");
+        //if(t1intflag>1) plog("*");
 
-        t1intflag=0;
+        //t1intflag=0;
 
         bool valid = false;
         
-        r = getadc();
-        //r = getcontadc();
-        //log("G %llu %u", tick, r);
+        uint32_t a;
+        uint64_t ts;
         
-        if(r==0) {
-            plog("ADCERR");
-            triggeradc();
-            nadcerr++;
-            //continue;
-        } else {
+        if(adc_pop(&a, &ts)) {
+        
+            G = CalcGsr(a);                        
 
-            G = CalcGsr(hres);                        
+            // plog("G %llu %lu", ts, G);
 
-            if(G>50 && G<140000) {
+            if (G > 50 && G < 140000) {
                 valid = true;
-                ninvalid = 0;              
+                ninvalid = 0;
 
                 //plog("G %lu", G);
 
-                if(lis) {
-                    acc=lis_readacc();          
-                    if(acc>maxacc) maxacc = acc;
+                if (lis) {
+                    acc = lis_readacc();
+                    if (acc > maxacc) maxacc = acc;
                 }
                 
-                //plog("GG %i %lu", acc, G);
+                WriteGsr(ts, G, acc);
 
+ 
             } else {
                 ninvalid++;
                 //log("ninvalid %u %lu", ninvalid, G);
-                G = 0;
+                // G = 0;
             } //log("G %lu", G);
-            
+                                
+            if(valid) {
+                measuring = 1;
+            } if(ninvalid > 40) {
+                measuring = 0;
+            }            
+        
+            if (measuring && (tick - last_gsr_send >= 2*32768L)) {
+                SendGsr(G,maxacc);
+                maxacc=0;
+                last_gsr_send = tick;
+            } 
         }
-
-        if(tick % (32768*8) == 32768*2) SendStat();
-        else if(valid) if (tick % (32768/2) == 0) {
-            SendGsr(G,maxacc);
-            maxacc=0;
-        }
+        
+        if(tick - last_stat > 7*32768L) {
+            SendStat();
+            last_stat = tick;
+        } 
+        
+        
                 
-        if(valid && USB_BUS_SENSE==0 && needSync && (role == ROLE_SYNC_DEST)) {
-            WaitForTimestamp();  
-        }
-                
-        if(USB_BUS_SENSE==0 && ninvalid>40 && role != ROLE_SYNC_SOURCE) {           
+        if(USB_BUS_SENSE==0 && measuring == 0) {           
             npage = 0;
 
             SleepObi();
-            needSync = 1;
+            
             ninvalid=0;
+            measuring = 1;
+            
             //lastSync = 0; // reset sync after sleep!
             //log("Reset sync");            
         }
         
         sleeping = 0;
 
-        r = triggeradc();
-        if(res ==0) {
-           plog("Unexpected, retrigger");
-           res = triggeradc();
-           if(res == 0) plog("Retr failed");
-        }
-
-        if(t1intflag) plog("?");
+//        r = triggeradc();
+//        if(res ==0) {
+//           plog("Unexpected, retrigger");
+//           res = triggeradc();
+//           if(res == 0) plog("Retr failed");
+//        }
         
-        if(valid) {
+        //if(valid) {
+        if(measuring) {
             uptime_meas++;
                        
-            unsigned long d = G | ( ((unsigned long)acc)<<24 );
 
-            // write a header
-            if(npage == 0) {
-                //unsigned long long x = 6;
-                //log("T %lu", memptr);
-                plog("Write header %llu", tick);
-                                
-                memcpy(page+npage, (unsigned char*) (&tick), 8);
-                npage += 8;               
-
-                // write sessionid to flash
-                memcpy(page+npage, (unsigned char*)(&sessionid), 4);
-                npage += 4;
-
-                
-            }
-
-            //waitbusy();
-          
-            
-            // write gsr data to flash
-            memcpy(page+npage, (unsigned char*)(&d), 4);
-            npage += 4;
-            
-            // just filled a page
-            if(npage==256) {               
-                unsigned char *paddr = (unsigned char *)(&memptr);
-
-                plog("Page write %lu H %x %x %x %x", memptr, paddr[3], paddr[2], paddr[1], paddr[0]);
-
-                if(memptr < MEMSIZE-256) {
-                    waitbusy();
-                    pageprogram(memptr, page, 256);                                
-                    memptr += 256;
-                    
-                }
-                npage = 0;
-            }
             
             //waitbusy();
         }
@@ -874,14 +805,15 @@ MAIN_RETURN main(void)
         // Flash every 5 sec
         //if(tick<31360154599424LL && n_flash>DT/4 || valid && n_flash>=DT*2 || n_flash>DT*10) {
         //if(tick<31360154599424LL && n_flash>DT/4 || valid && ((tick & (32768-1)) == 0) || ((tick & (32768*8-1)) == 0)) {
-        if(tick % (32768*4) == 0) {
+        if(tick - last_bat_check > 4 *32768L) {
+            
+            last_bat_check = tick;
 
             BatCheck();
 
             plog("VDD %.2f VBAT %.2f CHGSTAT %u USB %u G:%lu", vdd, vbat, CHGSTAT, USB_BUS_SENSE, G);
             plog("memptr %lu npage %u", memptr, npage);
             //plog("BT conn %u state %u nsent %u ", btconnected, btstate, nsent);
-            //plog("calib %i %llu", adjustWith, adjust);
             if(nadcerr>0) {
                 plog("nadcerr %i", nadcerr);
                 nadcerr=0;
@@ -893,7 +825,7 @@ MAIN_RETURN main(void)
             //nG = 0;
             
             if(USB_BUS_SENSE) {
-                uptime = 0;
+                //uptime = 0;
                 uptime_meas = 0;
                 last_charge_bat = 0;
             } else if(last_charge_bat == 0) last_charge_bat = vbat; // we only upgrade last_charge_but when we unplugged the charger
@@ -902,13 +834,49 @@ MAIN_RETURN main(void)
         
         }
 
-        if(t1intflag>1) plog("#");
-
-        t1intflag=0;
-
 
     }//end while
 }//end main
+
+void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc) {
+    //plog("GG %i %lu", acc, G);
+
+    unsigned long d = G | (((unsigned long) acc) << 24);
+
+    // write a header
+    if (npage == 0) {
+        //unsigned long long x = 6;
+        //log("T %lu", memptr);
+        plog("Write header %llu", ts);
+
+        memcpy(page + npage, (unsigned char*) (&ts), 8);
+        npage += 8;
+
+        // write sessionid to flash
+        memcpy(page + npage, (unsigned char*) (&sessionid), 4);
+        npage += 4;
+    }
+
+    //waitbusy();
+    // write gsr data to flash
+    memcpy(page + npage, (unsigned char*) (&d), 4);
+    npage += 4;
+
+    // just filled a page
+    if (npage == 256) {
+        unsigned char *paddr = (unsigned char *) (&memptr);
+
+        //plog("Page write %lu H %x %x %x %x", memptr, paddr[3], paddr[2], paddr[1], paddr[0]);
+
+        if (memptr < MEMSIZE - 256) {
+            waitbusy();
+            pageprogram(memptr, page, 256);
+            memptr += 256;
+
+        }
+        npage = 0;
+    }
+}
 
 unsigned long long NextStatTime() {
     return tick + (rand() % (8 * 32768)) + 12 * 32768 ; // somewhere between 12 + 20 sec    
@@ -931,45 +899,58 @@ void SleepObi() {
     
     unsigned long long nextstat = NextStatTime();
         
+    int n= 0;
+    
     while(1) {
         ProcRx();
             
         nsleep ++;
         sleeping = 1;
         
+        disable_cont_adc();
+        
         if(USB_BUS_SENSE) {
             WakeRN4020();
 
             LED_On(RED);
-            __delay_ms(100);
+            __delay_ms(10);
             LED_Off(RED);
-            __delay_ms(100);
+            __delay_ms(10);
             LED_On(RED);
-            __delay_ms(100);
+            __delay_ms(10);
             LED_Off(RED);
             
             break;
         }
             
-        //DT = 1;
+        SLEEPRATE = 1;
         Sleep();
 
-        if(tick % (32768*8) == 0) { // every 8 sec
+        n++;
+        
+        if(n % 8 == 0) { // every 8 sec
             //log("Check %llu", tick);
             
-            LED_On(RED);
-            __delay_ms(10);
-            LED_Off(RED);
+            if(vbat < 3.3) {
+                LED_On(RED);
+                __delay_ms(20);
+                LED_Off(RED);
+            } else {
+                LED_On(GREEN);
+                __delay_ms(20);
+                LED_Off(GREEN);                
+            }
         }
             
         if(tick > nextstat) { // every X sec
             //log("Check %llu", tick);
 
             PowerOpamp(true);
+            enable_cont_adc();
             
-            DT = 8;
-            
-            SetLedPattern();
+            clear_adc_buf();
+                        
+            // SetLedPattern();
             
             plog("Wake RN");
             WakeRN4020();
@@ -980,28 +961,24 @@ void SleepObi() {
             if(b!=NULL) ReleaseRxLine();
             */
             
+            SLEEPRATE = 10;
             unsigned long long t1 = tick;
             while(tick - t1 < 50000) Sleep();
             
             // WriteLogFlash();
             
-            int r = triggeradc();
-            if(r ==0) {
-                plog("Unexpected, retrigger");
-                r = triggeradc();
-               if(r == 0) plog("Retr failed");
-            }
-
-            Sleep();
-            t1intflag = 0;                
-            r = getadc();
+//            int r = triggeradc();
+//            if(r ==0) {
+//                plog("Unexpected, retrigger");
+//                r = triggeradc();
+//               if(r == 0) plog("Retr failed");
+//            }
+                        
+            uint32_t a;
+            uint64_t ts;
+            while(adc_pop(&a, &ts)==0);
                                 
-            if(r==0) {
-                plog("ADCERR?");
-                G = 0;
-            } else {
-                G = CalcGsr(hres);                
-            } 
+            G = CalcGsr(a);
             
             PowerOpamp(false);
             
@@ -1011,8 +988,7 @@ void SleepObi() {
             BatCheck();
 
             SendStat();
-                        
-            
+                                   
             unsigned last = tick;
             while(tick < last + 32768) {
                 Sleep();
@@ -1025,10 +1001,11 @@ void SleepObi() {
             //SendBuild();
                                                
             if(G>50 && G<140000) {
-                plog("GSR OK exit sleep");
+                plog("GSR %u OK exit sleep", G);
                 break;
             }
-            
+            plog("GSR %u NOT DETECTED", G);
+
             Sleep();
             
             plog("Dormant RN");
@@ -1041,8 +1018,8 @@ void SleepObi() {
         }            
            
     }    
-    
-    DT=8;
+
+    SLEEPRATE = 128;
     USBOn();
 
 }

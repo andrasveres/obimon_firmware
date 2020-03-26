@@ -150,10 +150,7 @@ void APP_DeviceCDCBasicDemoTasks()
                 
                 // get role -- NOTE capital R!
                 case 'R': {
-                    if(numBytesRead>2) {
-                        ChangeRole(readBuffer+2);                        
-                    } 
-                    sprintf(writeBuffer, "R %u", role);
+                    sprintf(writeBuffer, "R 0");
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
                     break;
@@ -219,50 +216,12 @@ void APP_DeviceCDCBasicDemoTasks()
 
                 // get/set time
                 case 't': {
-                    if(numBytesRead>3) {
-                        //sscanf(readBuffer+1, "%ll", &tick);
-                        tick = my_atoll(readBuffer+2);
-                        lastSync = tick;
-                        nextAdjust = tick + adjust;
-                        TMR1=0;
-                        plog("Set time %llu", tick);
-                    } 
-
-                    sprintf(writeBuffer, "t %llu %llu", tick + TMR1, lastSync);
+                    sprintf(writeBuffer, "t %llu 0", tick + TMR1);
                     
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
                     break;
                 }
-
-//                // calibrate
-//                case 'c': {
-//                    if(numBytesRead>3) {
-//                        char dir = readBuffer[2];
-//                        
-//                        if(dir=='+') {
-//                            adjustWith = 1;
-//                        } else if(dir=='-') {
-//                            adjustWith = -1;
-//                        } else {
-//                            log("ERROR adjustWith '%c'", dir);
-//                            sprintf(writeBuffer, "ERROR adjustWith '%c'", dir);    
-//                            putUSBUSART(writeBuffer,strlen(writeBuffer));
-//                            break;
-//                        }
-//                    
-//                        adjust = my_atoll(readBuffer+4);
-//                        nextAdjust = tick + adjust;
-//                        log("Adjust calibration %i %llu", adjustWith, adjust);
-//                        WriteConfig(CONF_CALIBRATE);
-//                    } 
-//
-//                    sprintf(writeBuffer, "c %i %llu", adjustWith, adjust);
-//                    
-//                    putUSBUSART(writeBuffer,strlen(writeBuffer));
-//
-//                    break;
-//                }
 
                 // get/set name
                 case 'n': {
@@ -299,7 +258,7 @@ void APP_DeviceCDCBasicDemoTasks()
                 case 'b': {
                     sprintf(writeBuffer, "b %u %f %f", 1-CHGSTAT, vbat, vdd);
 
-                    putUSBUSART(writeBuffer,strlen(writeBuffer));
+                    putUSBUSART(writeBuffer,strlen((char*)writeBuffer));
 
                     break;
                 }
@@ -339,17 +298,17 @@ void APP_DeviceCDCBasicDemoTasks()
             }
         } else {
             if(dumping) {
-                    int plen = 255;
+                    int plen = 128;
                     
                     waitbusy();
                     readmem(dumping, writeBuffer, plen);
                     
                     dumping += plen;
-                    if(dumping > memptr) {
+                    if(dumping >= memptr) {
                         dumping = 0 ;
                     }
                     
-                    putUSBUSART(writeBuffer,255); 
+                    putUSBUSART(writeBuffer,plen); 
                     lastUsb = tick;
 
             }
@@ -359,6 +318,16 @@ void APP_DeviceCDCBasicDemoTasks()
                 putUSBUSART(writeBuffer,strlen(writeBuffer));
                 lastUsb = tick;
             }
+        
+//#define TESTADC            
+#ifdef TESTADC
+            if(G!=0) {
+                sprintf(writeBuffer, "\nTESTADC %lu\n", G);
+                putUSBUSART(writeBuffer,strlen(writeBuffer));
+                
+                G=0;
+            }
+#endif
         }
     }
 

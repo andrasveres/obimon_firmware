@@ -48,19 +48,14 @@ typedef enum
 
 
 #define plog(...) {char s1[180]; sprintf(s1, "LOG "__VA_ARGS__); println(s1);}
+//#define plog(...) {}
+
 #define send(...) {char s2[180]; sprintf(s2, __VA_ARGS__); sendbt(s2);}
 
 // 8 Meg spansion flash
 #define MEMSIZE 8388608L
 
 #define CONF_NAME       0
-#define CONF_CALIBRATE  1
-
-#define ROLE_STANDALONE 0
-#define ROLE_SYNC_SOURCE 1
-#define ROLE_SYNC_DEST 2
-#define ROLE_TEST 3
-
 
 
 #define RXN 120
@@ -124,6 +119,7 @@ extern unsigned long long tick;
 extern unsigned long long lastSync;
 extern int needSync;
 extern int role;
+//extern unsigned int sessionid;
 
 extern unsigned long long nextAdjust;
 extern unsigned long long adjust;
@@ -135,6 +131,7 @@ typedef enum  {
     NONE,
     AOK,
     NFAIL,
+    CHARWRITE,
     OTHER
 } BTRESP ;
 
@@ -160,6 +157,8 @@ extern BTRESP btresp;
 #define MEM_CS_TRIS     TRISAbits.TRISA9
 #define MEM_CS          PORTAbits.RA9
 
+#define LIS_CS_TRIS     TRISAbits.TRISA8
+#define LIS_CS          PORTAbits.RA8
 
 ////////////////////////////////////////// ADC SPI PORTS
 #define SDI2_TRIS       TRISBbits.TRISB3
@@ -167,7 +166,10 @@ extern BTRESP btresp;
 
 #define ADC_CS_TRIS     TRISBbits.TRISB2
 #define ADC_CS          LATBbits.LATB2
+
+#define ADC_SCK_TRIS    TRISCbits.TRISC0
 #define ADC_SCK         LATCbits.LATC0
+
 
 ////////////////////////////////////////// PWROPAMP
 #define PWROPAMP_TRIS  TRISAbits.TRISA1   // powering external op amps
@@ -209,7 +211,7 @@ extern BTRESP btresp;
 
 #define FCY 16000000
 
-extern unsigned int DT;
+//extern unsigned int DT;
 //#define D 10
 
 //void __delay_us(unsigned long d);
@@ -223,7 +225,7 @@ void ProcRx();
 void WaitForTimestamp();
 
 void SendTimestamp();
-void SendGsr(unsigned long gsr);
+void SendGsr(unsigned long gsr, unsigned char acc);
 void SendLowBat() ;
 void SetLedPattern();
 void SendStat();
@@ -235,7 +237,7 @@ void println(char *s);
 void PowerFlash(bool b);
 void PowerOpamp(bool b);
 void InitPorts();
-void InitSPI1(unsigned char spre, unsigned char ppre);
+void InitSPI1();
 void InitSPI2(unsigned char spre, unsigned char ppre);
 void InitT1();
 void InitT2();
@@ -265,6 +267,8 @@ void WriteConfig(char conf);
 void ReadConfig(char conf);
 void ReadConfigAll();
 void WriteLogFlash();
+
+void CreateNewSession();
 
 /*********************************************************************
 * Function: void SYSTEM_Initialize( SYSTEM_STATE state )
