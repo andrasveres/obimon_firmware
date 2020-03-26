@@ -460,7 +460,7 @@ MAIN_RETURN main(void)
     
     if(btv<133) ConfRN4020();
     else ConfRN4020_new();
-    
+       
 
     // TEST
 //    unsigned char ii=0;
