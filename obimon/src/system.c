@@ -92,6 +92,7 @@ volatile char rtcintflag = 0;
 unsigned long redpattern  = 0;
 unsigned long greenpattern= 0;
 
+unsigned int vddraw, vbatraw; 
 
 //unsigned long long uptime=0;
 unsigned long long uptime_meas=0;
@@ -731,7 +732,7 @@ void SetLedPattern() {
     }
     
     if(USB_BUS_SENSE==1) {
-        if(CHGSTAT==0) {
+        if(CHGSTAT==1) {
             plog("BAT fully charged");
             greenpattern = 0xffffffff;
             redpattern = 0;
@@ -955,16 +956,16 @@ void Adverstise() {
     send("A,0050,07d0"); // interval 80 msec, duration 2 sec 
 }
 
-void SendTimestamp() {
-    unsigned long long tt = tick/32768;
-    
-    //unsigned long b1 = tick & 0xffffffff;
-    //unsigned long b2 = tick >> 16;
-        
-    send("N,55%04x%016llx", nsent, tt);    
-    nsent++;
-    Adverstise();    
-}
+//void SendTimestamp() {
+//    unsigned long long tt = tick/32768;
+//    
+//    //unsigned long b1 = tick & 0xffffffff;
+//    //unsigned long b2 = tick >> 16;
+//        
+//    send("N,55%04x%016llx", nsent, tt);    
+//    nsent++;
+//    Adverstise();    
+//}
 
 void SendSession() {
             
@@ -1009,18 +1010,18 @@ void SendBuild() {
     Adverstise();            
 }
 
-void SendUptime() {
-    unsigned int uptime_h = 0; // (uptime / DT) / 60;
-    unsigned int uptime_meas_h = 0; //(uptime_meas / DT) / 60;
-    
-    unsigned int lastb = (unsigned char) (last_charge_bat*10.0);    
-    unsigned int b = (unsigned char) (vbat*10.0);    
-    
-    // send uptime data
-    send("N,15%04x%08x%08x%02x%02x", nsent, uptime_h, uptime_meas_h, lastb, b);    
-    nsent++;        
-    Adverstise();            
-}
+//void SendUptime() {
+//    unsigned int uptime_h = 0; // (uptime / DT) / 60;
+//    unsigned int uptime_meas_h = 0; //(uptime_meas / DT) / 60;
+//    
+//    unsigned int lastb = (unsigned char) (last_charge_bat*10.0);    
+//    unsigned int b = (unsigned char) (vbat*10.0);    
+//    
+//    // send uptime data
+//    send("N,15%04x%08x%08x%02x%02x", nsent, uptime_h, uptime_meas_h, lastb, b);    
+//    nsent++;        
+//    Adverstise();            
+//}
 
 void RN4020OTA() {
     LED_On(RED);
@@ -1071,8 +1072,6 @@ void SendStat() {
     
     if(nbt == 1) {
         SendBuild();
-    } else if(nbt == 2) {
-        SendUptime();
     } if(nbt == 3 || nbt == 5 || nbt == 7 || nbt == 9) {
         SendSession();
     } else{
@@ -1104,6 +1103,9 @@ void ReadVoltage() {
     unsigned int buf1 = ADC1BUF1;
     unsigned int buf0 = ADC1BUF0;
     
+    vddraw = buf1;
+    vbatraw = buf0;
+    
     //plog("buf %u %u", buf0, buf1);
     
     vdd = 1.2 * 1024 / buf1;
@@ -1113,7 +1115,7 @@ void ReadVoltage() {
     // Or is the bandgap reference affected somehow?
     if(USB_BUS_SENSE==0) AD1CON1bits.ADON = 0; //Turn off A/D
        
-    //plog("vdd %f vbat %f", vdd, vbat);
+    plog("vdd %f vbat %f", vdd, vbat);
 
 }
 
@@ -1453,6 +1455,7 @@ void InitT2() {
 }
 
 void InitPorts() {
+    plog("InitPorts");
 
      AD1PCFG = 0xffff; // all ports digital
      AD1PCFGbits.PCFG11 = 0; // Set AN11 (PORTB13) as analog input
@@ -1488,7 +1491,7 @@ void InitPorts() {
 
     SDI2_TRIS = 1;
     
-    PWROPAMP = 1;
+    PWROPAMP = 0;
     PWROPAMP_TRIS = 0;
 
     USB_BUS_SENSE_TRIS = 1;
@@ -1510,9 +1513,10 @@ void InitPorts() {
 }
 
 void PowerOpamp(bool b) {
+    plog("Power opamp %u", b);
 
     opamp = b;
-    
+        
     if(b) {
         PWROPAMP_TRIS = 0;
         PWROPAMP = 1;

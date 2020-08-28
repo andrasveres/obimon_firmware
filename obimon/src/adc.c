@@ -6,8 +6,9 @@
 #include <libpic30.h>
 
 unsigned long hres;
+uint32_t rawadc=0;
 
-#define DADC 10
+#define DADC 100
 
 //void initadcspi() {
 //    InitSPI2(3,3);
@@ -57,9 +58,13 @@ int adc_pop(uint32_t *a, uint64_t *ts) {
     return 1;
 }
 
-int getcontadc(uint32_t *d) {
-    if(SDI2 == 1) return 0;
-    
+int getcontadc(uint32_t *d) {    
+    if(SDI2 == 1) {
+        //plog("n");
+        return 0;
+    }
+    //plog("g");
+
     int i;
 
     ADC_SCK = 0;
@@ -80,6 +85,8 @@ int getcontadc(uint32_t *d) {
 
     ADC_SCK = 1;
     __delay_us(1);                
+    
+    rawadc = a;
 
     if(a & 0xe00000) a = 0;
     
@@ -122,6 +129,8 @@ void test_cont() {
 
 // continuous adc, move 
 void enable_cont_adc() {
+    plog("Enabling cont adc");
+    
     ADC_CS_TRIS = 0;
     ADC_SCK_TRIS = 0;    
     SDI2_TRIS = 1;
@@ -138,6 +147,8 @@ void enable_cont_adc() {
 
 // continuous adc, move 
 void disable_cont_adc() {
+    plog("Disabling cont adc");
+
     ADC_CS = 1;
     __delay_us(DADC);
 }

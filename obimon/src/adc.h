@@ -33,7 +33,10 @@ void clockout();
 int triggeradc();
 int getadc();
 
+int adc_put(uint32_t a, uint64_t ts);
+int adc_pop(uint32_t *a, uint64_t *ts);
+
 void initcontadc();
-int getcontadc() ;
+int getcontadc(uint32_t *d);
 
 #endif  //ADC_H

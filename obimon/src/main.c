@@ -50,9 +50,6 @@
 ////////////////////////////////////////////////////////////////////////////// TODO
 
 
-// 12pf HIGH    24ppm     
-// 15pf HIGH    17ppm
-// 22pf HIGH    3.9ppm
 
 const char __attribute__((space(prog), address(0x2000))) CCC[] = __DATE__;
 
@@ -81,10 +78,18 @@ uint64_t next_sample = 0;
 uint32_t cumulative_a = 0;
 uint8_t cumulative_n = 0;
 
+extern uint32_t rawadc;
+
 char is=0;
+
+unsigned char lis = 0;
+
+extern unsigned int vddraw, vbatraw; 
 
 uint16_t SLEEPRATE = 128;
 uint16_t SAMPLERATE = 8;
+
+unsigned int noadc=0;
 
 void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
 {
@@ -105,7 +110,8 @@ void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
     if(opamp) {
         if (getcontadc(&a)) {
 
-            //plog("A %lu", a);
+            noadc=0;
+            // plog("A %lu", a);
 
             // if no subsampling
             if (SAMPLERATE == 0) {
@@ -129,6 +135,11 @@ void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
 
                 }
             }
+        } else noadc++;
+        
+        if(noadc>50) {
+            enable_cont_adc();
+            noadc = 0;
         }
 
     }
@@ -243,11 +254,12 @@ int randshift = 0;
 unsigned long CalcGsr(unsigned long h) {
     
     double alpha;
-    alpha = 100.0/(100+680.0);
+
+    if(lis) alpha = 0.2 / 3.3; //100.0 / (100.0 + 3000.0);
+    else alpha = 100.0/(100+680.0);
     
     
     // TEST =======================
-    // alpha = 100.0 / (100.0 + 3000.0);
 
     double R = 100e3;
     //double R = 100e3;
@@ -351,9 +363,20 @@ MAIN_RETURN main(void)
     plog("-------------")
     plog("Boot");    
     
+    
+    
+//    // TEST
+//    enable_cont_adc();
+//    uint32_t a;
+//    int r;
+//    while(1) {
+//        r = getcontadc(&a);
+//        if(r==1) plog("%lu", a);
+//    }
+
+    
     initflashspi();    
 
-    unsigned char lis = 0;
     
     //InitSPI1_TEST(0,0,1,0);
     
@@ -374,6 +397,9 @@ MAIN_RETURN main(void)
     BuildToHex();
 
     InitT1();
+    
+    PowerOpamp(true);
+    __delay_ms(100);
     enable_cont_adc();
             
     InitInternalADC();
@@ -601,7 +627,6 @@ MAIN_RETURN main(void)
         memptr = 65536;
     }
 
-    PowerOpamp(true);
 
  
     Blink(RED, 1);
@@ -630,6 +655,7 @@ MAIN_RETURN main(void)
     int ninvalid=0;
     int nadcerr=0;
     extern int measuring ;
+    measuring = 0;
 
     // Start USB
     SYSTEM_Initialize(SYSTEM_STATE_USB_START);   
@@ -641,7 +667,14 @@ MAIN_RETURN main(void)
     unsigned long long last_gsr_send = 0;
     unsigned long long last_bat_check = 0;
     
+    // create seed for random:
+    unsigned int ss = (unsigned int) rawadc;
+    unsigned int ss2 = (unsigned int) tick;
+    unsigned int seed = ss + ss2 + vddraw + vbatraw;
+    plog("SEED %u", seed);
+    srand(seed);
     
+    //unsigned int seed = ()
     CreateNewSession(); // we maintain the same sessionid until the device is powered up
     
     while(1)
@@ -729,39 +762,33 @@ MAIN_RETURN main(void)
         
             G = CalcGsr(a);                        
 
-            // plog("G %llu %lu", ts, G);
-
+            plog("G %llu %lu", ts, G);
+            
+            if (lis) {
+               acc = lis_readacc();
+               if (acc > maxacc) maxacc = acc;
+            }
+            
             if (G > 50 && G < 140000) {
                 valid = true;
                 ninvalid = 0;
-
-                //plog("G %lu", G);
-
-                if (lis) {
-                    acc = lis_readacc();
-                    if (acc > maxacc) maxacc = acc;
-                }
+                measuring = 1;
                 
-                WriteGsr(ts, G, acc);
-
- 
             } else {
                 ninvalid++;
-                //log("ninvalid %u %lu", ninvalid, G);
-                // G = 0;
-            } //log("G %lu", G);
-                                
-            if(valid) {
-                measuring = 1;
-            } if(ninvalid > 40) {
-                measuring = 0;
-            }            
-        
-            if (measuring && (tick - last_gsr_send >= 2*32768L)) {
+            } 
+                                       
+            if (measuring && (tick - last_gsr_send >= 32768L / 2L)) {
                 SendGsr(G,maxacc);
                 maxacc=0;
                 last_gsr_send = tick;
             } 
+            
+            if(measuring) WriteGsr(ts, G, acc);
+
+            // we only switch to no measuring, when a page is just written, so that all data are flushed
+            if(ninvalid > 40 && npage == 0) measuring = 0;
+
         }
         
         if(tick - last_stat > 7*32768L) {
@@ -771,13 +798,12 @@ MAIN_RETURN main(void)
         
         
                 
-        if(USB_BUS_SENSE==0 && measuring == 0) {           
-            npage = 0;
-
+        if(USB_BUS_SENSE==0 && measuring == 0) {
+            
             SleepObi();
             
             ninvalid=0;
-            measuring = 1;
+            //measuring = 1;
             
             //lastSync = 0; // reset sync after sleep!
             //log("Reset sync");            
@@ -792,13 +818,8 @@ MAIN_RETURN main(void)
 //           if(res == 0) plog("Retr failed");
 //        }
         
-        //if(valid) {
         if(measuring) {
             uptime_meas++;
-                       
-
-            
-            //waitbusy();
         }
         
         //LED_Off(GREEN);
@@ -812,7 +833,7 @@ MAIN_RETURN main(void)
             BatCheck();
 
             plog("VDD %.2f VBAT %.2f CHGSTAT %u USB %u G:%lu", vdd, vbat, CHGSTAT, USB_BUS_SENSE, G);
-            plog("memptr %lu npage %u", memptr, npage);
+            plog("measuring %u memptr %lu npage %u", measuring, memptr, npage);
             //plog("BT conn %u state %u nsent %u ", btconnected, btstate, nsent);
             if(nadcerr>0) {
                 plog("nadcerr %i", nadcerr);
@@ -840,9 +861,13 @@ MAIN_RETURN main(void)
 
 void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc) {
     //plog("GG %i %lu", acc, G);
-
     unsigned long d = G | (((unsigned long) acc) << 24);
 
+    if (memptr == MEMSIZE) {
+        plog("MEMFULL\n");
+        return;
+    }
+    
     // write a header
     if (npage == 0) {
         //unsigned long long x = 6;
@@ -864,22 +889,23 @@ void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc) {
 
     // just filled a page
     if (npage == 256) {
-        unsigned char *paddr = (unsigned char *) (&memptr);
+        //unsigned char *paddr = (unsigned char *) (&memptr);
 
         //plog("Page write %lu H %x %x %x %x", memptr, paddr[3], paddr[2], paddr[1], paddr[0]);
 
-        if (memptr < MEMSIZE - 256) {
-            waitbusy();
-            pageprogram(memptr, page, 256);
-            memptr += 256;
-
-        }
+        waitbusy();
+        pageprogram(memptr, page, 256);
+        memptr += 256;
+        
         npage = 0;
     }
 }
 
+////8388352
+
+
 unsigned long long NextStatTime() {
-    return tick + (rand() % (8 * 32768)) + 12 * 32768 ; // somewhere between 12 + 20 sec    
+    return tick + (rand() % (2 * 32768)) + 5 * 32768 ; // somewhere between 12 + 20 sec    
 }
 
 void SleepObi() {
@@ -902,6 +928,8 @@ void SleepObi() {
     int n= 0;
     
     while(1) {
+        plog("SLEEP LOOP -------------");
+
         ProcRx();
             
         nsleep ++;
@@ -961,10 +989,18 @@ void SleepObi() {
             if(b!=NULL) ReleaseRxLine();
             */
             
-            SLEEPRATE = 10;
-            unsigned long long t1 = tick;
-            while(tick - t1 < 50000) Sleep();
+            SLEEPRATE = 128;
+                        
+            unsigned lasts = tick;
+            while(tick < lasts + 32768*1) Sleep();
+                
+            //plog("XXXXXXXXXXXXXXXXX");
             
+            //int i;
+            //for(i=0; i<1000; i++) Sleep();
+            
+            clear_adc_buf(); // clear early data
+
             // WriteLogFlash();
             
 //            int r = triggeradc();
@@ -976,16 +1012,15 @@ void SleepObi() {
                         
             uint32_t a;
             uint64_t ts;
-            while(adc_pop(&a, &ts)==0);
+            while(adc_pop(&a, &ts)==0); // wait for first data
                                 
             G = CalcGsr(a);
             
-            PowerOpamp(false);
             
             ReadVoltage(); 
             if(last_charge_bat == 0) last_charge_bat = vbat;
 
-            BatCheck();
+            //BatCheck();
 
             SendStat();
                                    
@@ -1001,11 +1036,13 @@ void SleepObi() {
             //SendBuild();
                                                
             if(G>50 && G<140000) {
-                plog("GSR %u OK exit sleep", G);
+                plog("GSR %lu OK exit sleep", G);
                 break;
             }
-            plog("GSR %u NOT DETECTED", G);
+            plog("GSR %lu NOT DETECTED", G);
 
+            PowerOpamp(false);
+            
             Sleep();
             
             plog("Dormant RN");
@@ -1019,6 +1056,7 @@ void SleepObi() {
            
     }    
 
+    PowerOpamp(true);
     SLEEPRATE = 128;
     USBOn();
 
