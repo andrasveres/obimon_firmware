@@ -375,7 +375,7 @@ void lis_reg23() {
 
 int lis_readacc() {
     __delay_us(D);
-    LIS_CS = 1;
+    LIS_CS = 1; 
     __delay_us(D);
 
     LIS_CS = 0;
