@@ -1,3 +1,3 @@
 # obimon_firmware
 
-AAA
+Firmware for Obimon EDA device. Target is PIC24FJ64GB004.
