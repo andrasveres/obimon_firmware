@@ -796,6 +796,7 @@ MAIN_RETURN main(void)
             last_stat = tick;
         } 
         
+        // test
         
                 
         if(USB_BUS_SENSE==0 && measuring == 0) {
