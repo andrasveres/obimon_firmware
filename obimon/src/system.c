@@ -279,7 +279,7 @@ long long my_atoll(char *instr)
 
 // bluetooth print
 void sendbt(char *s) {
-    plog("--> %s", s);
+    //plog("--> %s", s);
     
     char *r = s;
     while((*r)!=0) {
@@ -426,7 +426,7 @@ char *GetRxLine() {
         
     char *b = (char*)rxbuf[rptr];
 
-    //log("GetRxLine %s", b);
+    //plog("GetRxLine %s", b);
     
     return b;    
 }
@@ -499,7 +499,7 @@ void ChangeGroup(char *n) {
 char* WaitLine() {
     char *b;
     unsigned long long t = tick;
-    while((b=GetRxLine())==NULL && (tick - t < 32768*5));
+    while((b=GetRxLine())==NULL && (tick - t < 32768L*5));
     unsigned long dt = tick - t;
     //log("   dt=%lu", dt);
     //if(b!=NULL) log("<-- (len %i) %s", strlen(b), b);
@@ -511,7 +511,22 @@ char* WaitLine() {
 void WaitResp() {
     unsigned long long t = tick;
     btresp = NONE;
-    while(btresp==NONE && (tick - t < 32768*2)) ProcRx();
+    unsigned int n=0;
+    
+    while(btresp==NONE) {
+        
+        n++;
+        
+        unsigned long dt = tick - t;
+
+        __delay_ms(10);
+        if((n%100)==0) {
+            plog("dt %lu %llu", dt, tick);
+        }
+        ProcRx();
+        
+        if(dt>=32768L * 2L) break;
+    }
 }
 
 
@@ -531,7 +546,7 @@ void ProcRx() {
             return;
         }
         
-        plog("<-- (len %i) %s", strlen(b), b);
+        // plog("<-- (len %i) %s", strlen(b), b);
         
         btresp = OTHER;
         
