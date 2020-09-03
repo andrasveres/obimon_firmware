@@ -76,7 +76,10 @@
 #define READ_LOW_BYTE(v)   ((unsigned char) (v))
 #define READ_HIGH_BYTE(v)  ((unsigned char) (((unsigned int) (v)) >> 8))
 
+#define BTLOG 1
+
 unsigned char rxbuf[RXL][RXN];
+char printbuf[180];
 
 char *compiledate;
 
@@ -104,7 +107,7 @@ char group[20];
 unsigned char hexname[60];
 unsigned char hexbuild[60];
 
-char btversion[60];
+//char btversion[60];
 BTSTATE btstate=WAIT;
 unsigned int btconnected = 0;
 
@@ -127,13 +130,16 @@ bool opamp = false;
 
 BTRESP btresp=NONE;
 
-int n_blocks_req=0;
-unsigned int blocks_req[100];
+//int n_blocks_req=0;
+//unsigned int blocks_req[100];
 
 unsigned long sessionid=0;
 int measuring = 0;
 
 extern uint16_t SLEEPRATE;
+extern int btv;
+
+char tmp[256];
 
 /*********************************************************************
 * Function: void SYSTEM_Initialize( SYSTEM_STATE state )
@@ -278,8 +284,12 @@ long long my_atoll(char *instr)
 }
 
 // bluetooth print
-void sendbt(char *s) {
-    //plog("--> %s", s);
+void sendbt(char *s, char rn) {
+#ifdef BTLOG
+    print("-->");
+    if(rn)println(s);
+    else print(s);
+#endif    
     
     char *r = s;
     while((*r)!=0) {
@@ -290,11 +300,12 @@ void sendbt(char *s) {
 
     while(!U2STAbits.TRMT);
     
-    U2TXREG = '\n';
-    while(!U2STAbits.TRMT);
-    U2TXREG = '\r';    
-
-    while(!U2STAbits.TRMT);
+    if(rn) {
+        U2TXREG = '\n';
+        while(!U2STAbits.TRMT);
+        U2TXREG = '\r';    
+        while(!U2STAbits.TRMT);
+    }
 
 }
 
@@ -311,7 +322,7 @@ void print(char *s) {
 
 void println(char *s) {
     print(s);
-    print("\n\r");
+    print("\n");
 }
 
 /*
@@ -344,7 +355,7 @@ void DormantRN4020() {
     WAKEHW_TRIS = 0;
     WAKEHW = 0;
     __delay_ms(1);    
-    sendbt("O"); //  Goto Dormant state
+    send("O"); //  Goto Dormant state
     __delay_ms(1);    
 }
 
@@ -426,8 +437,10 @@ char *GetRxLine() {
         
     char *b = (char*)rxbuf[rptr];
 
-    //plog("GetRxLine %s", b);
-    
+#ifdef BTLOG
+    print("<--");
+    println(b);
+#endif
     return b;    
 }
 
@@ -452,7 +465,7 @@ void FindHandle(char *ch, char *handle) {
         ReleaseRxLine();
     }
     
-    sendbt("LS"); //  list services and char
+    send("LS"); //  list services and char
     
     handle[0]=0;
 
@@ -502,7 +515,10 @@ char* WaitLine() {
     while((b=GetRxLine())==NULL && (tick - t < 32768L*5));
     unsigned long dt = tick - t;
     //log("   dt=%lu", dt);
-    //if(b!=NULL) log("<-- (len %i) %s", strlen(b), b);
+    
+//#ifdef BTLOG
+//    if(b!=NULL) plog("<-- (len %i) %s", strlen(b), b);
+//#endif
     
     return b;
 }
@@ -530,10 +546,10 @@ void WaitResp() {
 }
 
 
-void ProcCharWrite(char *b) {
-    n_blocks_req = 16;
-    
-}
+//void ProcCharWrite(char *b) {
+//    n_blocks_req = 16;
+//    
+//}
 
 void ProcRx() {
     
@@ -546,7 +562,9 @@ void ProcRx() {
             return;
         }
         
-        // plog("<-- (len %i) %s", strlen(b), b);
+//#ifdef BTLOG
+//        plog("<-- (len %i) %s", strlen(b), b);
+//#endif        
         
         btresp = OTHER;
         
@@ -570,7 +588,7 @@ void ProcRx() {
         } else if(strncmp(b, "WV", 2)==0) {
             // log("RX %s", rxbuf);
             // received Write
-            ProcCharWrite(b);
+            // ProcCharWrite(b);
             btresp = CHARWRITE;
             
         } else plog("RX");
@@ -593,7 +611,7 @@ int InitRN4020() {
     //WaitResp();
     //if(btresp != AOK) log("ERR 1");
 
-    sendbt("SF,1"); //  reset to the factory default configuration
+    send("SF,1"); //  reset to the factory default configuration
     __delay_ms(100);
 
     WaitResp();
@@ -605,9 +623,51 @@ int InitRN4020() {
     
 }
 
+void UpgradeRN() {
+    plog("RN4020 upgrade ====");
+    WakeRN4020();
+    __delay_ms(1000);
+
+    //greenpattern = 0b0000000000000000000000001010101;
+    //greenpattern = 0b0001000000100000010000001010101;
+    LED_On(RED);
+    LED_On(GREEN);
+
+    RN4020OTA();
+
+    int connected = 0;
+    int lastcmd = 0;
+    
+    unsigned long long t = tick;
+
+    while (1) {
+        if(connected==0 && tick - t > 32768L * 60L) {
+            asm("RESET");            
+        }
+        
+        char *b = WaitLine();
+        if (b == NULL) continue;
+        
+        plog("%s", b);
+
+        if (strncmp(b, "Conn", 3) == 0) {
+            connected = 1;
+            plog("CONNECTED ----- ");
+        }
+
+        if (connected && strcmp(b, "CMD") == 0) {
+            plog("Upgrade OK -----------------");
+            asm("RESET");
+        }
+        
+        ReleaseRxLine();
+        
+    }    
+}
+
 int ConfRN4020() {
     
-    sendbt("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
+    send("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
     WaitResp();
     if(btresp != AOK) {
         return 3;
@@ -615,13 +675,13 @@ int ConfRN4020() {
 
         
     //sendbt("SR,20000000"); //   set the RN4020 module as a peripheral and auto advertise
-    sendbt("SR,00000100"); //  unfiltered observer    
+    send("SR,00000100"); //  unfiltered observer    
     WaitResp();
     if(btresp != AOK) {
         return 4;
     }
     
-    sendbt("PZ"); //  Clean private Service
+    send("PZ"); //  Clean private Service
     WaitResp();
     if(btresp != AOK) {
         return 5;
@@ -651,7 +711,7 @@ int ConfRN4020() {
     
     plog("now reboot bt");
     
-    sendbt("R,1"); // reboot
+    send("R,1"); // reboot
     __delay_ms(2000);
     WaitResp();
     WaitResp();
@@ -668,23 +728,23 @@ int ConfRN4020() {
 }
 
 int ConfRN4020_new() {
+    plog("ConfRN4020_new");
     
     //sendbt("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
-    sendbt("SS,00000001"); //  enable support of Private services
+    sendbt("SS,00000001",1); //  enable support of Private services
     WaitResp();
     if(btresp != AOK) {
         return 3;
     }
 
-        
-    sendbt("SR,00000000"); //   set the RN4020 module as a peripheral and auto advertise
+    sendbt("SR,04000000",1); //   set the RN4020 module as a peripheral and auto advertise
     //sendbt("SR,00000100"); //  unfiltered observer    
     WaitResp();
     if(btresp != AOK) {
         return 4;
     }
     
-    sendbt("PZ"); //  Clean private Service
+    sendbt("PZ",1); //  Clean private Service
     WaitResp();
     if(btresp != AOK) {
         return 5;
@@ -719,9 +779,16 @@ int ConfRN4020_new() {
         plog("Warning command failed");
     }
     
+    
+    send("S-,OBIMON");    
+    WaitResp();
+    if(btresp != AOK) {
+        plog("Warning command failed");
+    }
+    
     plog("now reboot bt");
     
-    sendbt("R,1"); // reboot
+    send("R,1"); // reboot
     __delay_ms(2000);
     WaitResp();
     WaitResp();
@@ -783,7 +850,7 @@ void SetLedPattern() {
 }
 
 void WriteConfig(char conf) {
-    char tmp[256]; // WARNING!
+    //char tmp[256]; // WARNING!
     unsigned int confptr = conf*4096; // 4k sectors
     
     switch(conf) {
@@ -817,7 +884,7 @@ void ReadConfigAll() {
 }
 
 void ReadConfig(char conf) {
-    char tmp[256]; // WARNING!
+    //char tmp[256]; // WARNING!
     unsigned int confptr = conf*4096; // 4k sectors
 
     // Read
@@ -982,21 +1049,51 @@ void Adverstise() {
 //    Adverstise();    
 //}
 
+void SetAdvData(char *data) {
+    
+    if(btv==133) {
+        sendbt("Y",1);    
+        sendbt("NZ",1);
+
+        if(btconnected) sendbt("NB,FF",0);
+        else sendbt("NA,FF",0);
+
+        sendbt(data,1);
+
+    } else {
+        sendbt("N,",0);
+        sendbt(data,1);
+    }
+}
+
 void SendSession() {
-            
-    send("N,60%04x%08lx%016llx", nsent, sessionid, tick);    
+    plog("SendSession");
+    
+    char s[20];
+    
+    sprintf(s,"60%04x%08lx%016llx", nsent, sessionid, tick);
+    SetAdvData(s);
+
+    //send("N,60%04x%08lx%016llx", nsent, sessionid, tick);    
+    
     nsent++;
     Adverstise();    
 }
 
 void SendCompact() {
+    plog("SendCompact");
+    
+    char s[40];
+    
     unsigned char b = (unsigned char) (vbat*10.0);
     unsigned char m = (unsigned char) (100 * (memptr-65536) / (MEMSIZE-65536));
-    uint16_t s = (uint16_t) ((tick + TMR1)/1024); // resolution 32Hz, max difference 2048sec
+    uint16_t ss = (uint16_t) ((tick + TMR1)/1024); // resolution 32Hz, max difference 2048sec
     
-    plog("SendCompact %f b:%u m:%u s:%u", vbat, b,m,s);
+    plog("SendCompact %f b:%u m:%u s:%u", vbat, b,m,ss);
     
-    send("N,14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, s, hexname);    
+    sprintf(s,"14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, ss, hexname);
+    SetAdvData(s);
+    
     nsent++;        
     Adverstise();    
 }
@@ -1019,8 +1116,13 @@ void SendCompact() {
 //}
 
 void SendBuild() {
+    plog("SendBuild");
+    
+    char s[70];
     // send build date and api version
-    send("N,13%04x%s", nsent, hexbuild);    
+    
+    sprintf(s,"13%04x%s", nsent, hexbuild);    
+    SetAdvData(s);
     nsent++;        
     Adverstise();            
 }
@@ -1048,13 +1150,20 @@ void RN4020OTA() {
     //if(WaitLine()==NULL) return;
     //ReleaseRxLine();
     __delay_ms(500);
-    send("SF,2");    
+    send("SF,2");    // factory reset
     if(WaitLine()==NULL) return;
     ReleaseRxLine();
     __delay_ms(5000);
     send("SR,10008000");    
+    //send("SR,32008000");
+    
     if(WaitLine()==NULL) return;
     ReleaseRxLine();
+        
+    send("S-,OTA");    
+    if(WaitLine()==NULL) return;
+    ReleaseRxLine();
+    
     __delay_ms(2000);
     send("R,1");    
     //__delay_ms(5000);
@@ -1063,14 +1172,25 @@ void RN4020OTA() {
     if(WaitLine()==NULL) return;
     ReleaseRxLine();
     __delay_ms(5000);    
-    send("GR");    
-    if(WaitLine()==NULL) return;
-    ReleaseRxLine();
+    
+    
+//    send("GR");    
+//    if(WaitLine()==NULL) return;
+//    ReleaseRxLine();
     send("A");    
     __delay_ms(100);
     if(WaitLine()==NULL) return;
     ReleaseRxLine();
 
+    // 001EC041F1DE
+    
+//    send("D");    
+//    __delay_ms(100);
+//    if(WaitLine()==NULL) return;
+//    ReleaseRxLine();
+
+
+    plog("RN is in OTA mode");
     //if(WaitLine()==NULL) return;
     //ReleaseRxLine();
 
@@ -1095,14 +1215,31 @@ void SendStat() {
 
 }
 
+unsigned long long last_gsr_send = 0;
 void SendGsr(unsigned long gsr, unsigned char acc) {
-    
+    char s[60];
+        
     unsigned long d = gsr;
     d |= ((unsigned long)acc)<<24;
     
-    send("N,22%04x%08lx", nsent, d);    
-    nsent++;    
-    Adverstise();
+    if(btconnected) {
+        send("SHW,%s,%08lx", handle_gsr, d); 
+    }
+    
+    if(acc > maxacc) maxacc = acc;
+        
+    if (tick - last_gsr_send >= 32768L / 1L) {
+        maxacc=0;
+        last_gsr_send = tick;
+
+        sprintf(s,"22%04x%08lx", nsent, d);
+        SetAdvData(s);
+    
+        //send("N,22%04x%08lx", nsent, d);    
+        nsent++;    
+        Adverstise();
+    }
+    
 }
 
 void ReadVoltage() {

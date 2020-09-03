@@ -67,6 +67,8 @@ extern bool opamp;
 
 extern char handle_gsr[5];
 
+extern char tmp[256];
+
 extern int n_blocks_req;
 extern char* ch_data;
 
@@ -90,6 +92,7 @@ uint16_t SLEEPRATE = 128;
 uint16_t SAMPLERATE = 8;
 
 unsigned int noadc=0;
+int btv = 0;
 
 void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
 {
@@ -255,7 +258,9 @@ unsigned long CalcGsr(unsigned long h) {
     
     double alpha;
 
-    if(lis) alpha = 0.2 / 3.3; //100.0 / (100.0 + 3000.0);
+    //if(lis) alpha = 0.2 / 3.3; //100.0 / (100.0 + 3000.0);
+    // if(lis) alpha = 0.2 / 3.3; 
+    if(lis) alpha = 0.4166 / 3.3; 
     else alpha = 100.0/(100+680.0);
     
     
@@ -398,6 +403,17 @@ MAIN_RETURN main(void)
 
     InitT1();
     
+    // Wait for 32khz clock to stabilize
+    while(1) {
+        unsigned long long t = tick;
+        __delay_ms(100);
+        unsigned long dt = tick - t;        
+        plog("D %lu", dt);
+
+        if(dt > 32768 / 10 / 2) break;
+    } 
+    
+    
     PowerOpamp(true);
     __delay_ms(100);
     enable_cont_adc();
@@ -436,53 +452,24 @@ MAIN_RETURN main(void)
     
     //sendbt("S-,Obi");
     plog("V sent");
-    sendbt("V");  
+    send("V");  
     WaitLine();
     
-    strcpy(btversion, GetRxLine());
+    strcpy(tmp, GetRxLine());
     ReleaseRxLine();
-    plog("RN4020 version %s", btversion);
+    plog("RN4020 version %s", tmp);
     
-    int btv = 0;
-    if(strcmp(btversion, "MCHP BTLE v1.10.09 06/09/2014")==0) btv=110;
-    if(strcmp(btversion, "MCHP BTLE v1.20 12/09/2014")==0) btv = 120; 
-    if(strcmp(btversion, "MCHP BTLE v1.23.5 8/7/2015")==0) btv = 123;
-    if(strcmp(btversion, "MCHP BTLE v1.33.4 BEC 11/24/2015")==0) btv = 133;
+    if(strcmp(tmp, "MCHP BTLE v1.10.09 06/09/2014")==0) btv=110;
+    if(strcmp(tmp, "MCHP BTLE v1.20 12/09/2014")==0) btv = 120; 
+    if(strcmp(tmp, "MCHP BTLE v1.23.5 8/7/2015")==0) btv = 123;
+    if(strcmp(tmp, "MCHP BTLE v1.33.4 BEC 11/24/2015")==0) btv = 133;
     
-    if(btv<123) {
-    
-        plog("RN4020 needs upgrade =================================");
-        WakeRN4020();
-        __delay_ms(1000);
-        
-        //greenpattern = 0b0000000000000000000000001010101;
-        //greenpattern = 0b0001000000100000010000001010101;
-        LED_On(RED);
-        LED_On(GREEN);
-        
-        RN4020OTA();
-        
-        int connected = 0;
-        int lastcmd = 0;
-        
-        while(1) {
-            char *b = WaitLine();
-            if(b == NULL) continue;
-            plog("%s", b);
-
-            if(strcmp(b,"Connected")==0) connected = 1;
-            
-            if(connected && strcmp(b,"CMD")==0) {
-                plog("Upgrade OK -----------------");
-                asm ("RESET");                
-            }
-            
-            ReleaseRxLine();
-        }
-        
-        //while(1);
-        
-    }
+//    if(btv<123) {
+//    
+//        UpgradeRN();
+//        //while(1);
+//        
+//    }
     
     if(btv<133) ConfRN4020();
     else ConfRN4020_new();
@@ -664,7 +651,6 @@ MAIN_RETURN main(void)
     plog("Start loop");
     
     unsigned long long last_stat = 0;
-    unsigned long long last_gsr_send = 0;
     unsigned long long last_bat_check = 0;
     
     // create seed for random:
@@ -687,7 +673,7 @@ MAIN_RETURN main(void)
                 
         if(btresp == NFAIL) {
             btresp = NONE;
-            sendbt("R,1");
+            send("R,1");
         }
                 
         //------------------------------ timer triggered
@@ -762,7 +748,7 @@ MAIN_RETURN main(void)
         
             G = CalcGsr(a);                        
 
-            plog("G %llu %lu", ts, G);
+            //plog("G %llu %lu", ts, G);
             
             if (lis) {
                acc = lis_readacc();
@@ -778,13 +764,10 @@ MAIN_RETURN main(void)
                 ninvalid++;
             } 
                                        
-            if (measuring && (tick - last_gsr_send >= 32768L / 2L)) {
-                SendGsr(G,maxacc);
-                maxacc=0;
-                last_gsr_send = tick;
-            } 
-            
-            if(measuring) WriteGsr(ts, G, acc);
+            if (measuring) {
+                SendGsr(G,acc);            
+                WriteGsr(ts, G, acc);
+            }
 
             // we only switch to no measuring, when a page is just written, so that all data are flushed
             if(ninvalid > 40 && npage == 0) measuring = 0;
@@ -795,10 +778,7 @@ MAIN_RETURN main(void)
             SendStat();
             last_stat = tick;
         } 
-        
-        // test
-        
-                
+                               
         if(USB_BUS_SENSE==0 && measuring == 0) {
             
             SleepObi();

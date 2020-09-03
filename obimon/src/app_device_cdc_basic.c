@@ -134,7 +134,7 @@ void APP_DeviceCDCBasicDemoTasks()
                     char s2 = readstatus2();
                     char s3 = readstatus3();
                     
-                    sprintf(writeBuffer, "1 %u %u %u", s1, s2, s3);
+                    sprintf((char*)writeBuffer, "1 %u %u %u", s1, s2, s3);
 
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
@@ -142,7 +142,7 @@ void APP_DeviceCDCBasicDemoTasks()
                 }
                 
                 case '2': {                    
-                    sprintf(writeBuffer, "2 %s", btversion);
+                    sprintf(writeBuffer, "2 %u", btv);
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
                     break;
@@ -248,6 +248,13 @@ void APP_DeviceCDCBasicDemoTasks()
 
                     break;
                 }
+                
+                case 'O': {
+                    if(readBuffer[1]=='T' && readBuffer[2]=='A') {
+                        UpgradeRN();
+                    }                   
+                }
+                   
                 
                 case 'r': {
                     asm ("RESET");

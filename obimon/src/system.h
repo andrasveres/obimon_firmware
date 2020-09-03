@@ -46,11 +46,12 @@ typedef enum
     SYSTEM_STATE_USB_RESUME
 } SYSTEM_STATE;
 
+extern char printbuf[180];
 
-#define plog(...) {char s1[180]; sprintf(s1, "LOG "__VA_ARGS__); println(s1);}
+#define plog(...) {sprintf(printbuf, "LOG "__VA_ARGS__); println(printbuf);}
 //#define plog(...) {}
 
-#define send(...) {char s2[180]; sprintf(s2, __VA_ARGS__); sendbt(s2);}
+#define send(...) {sprintf(printbuf, __VA_ARGS__); sendbt(printbuf, 1);}
 
 // 8 Meg spansion flash
 #define MEMSIZE 8388608L
@@ -58,7 +59,7 @@ typedef enum
 #define CONF_NAME       0
 
 
-#define RXN 120
+#define RXN 100
 #define RXL 30
 extern unsigned char rxbuf[RXL][RXN];
 extern volatile int rxn;
@@ -87,6 +88,8 @@ extern char apiversion;
 extern char name[];
 extern char group[];
 extern unsigned char hexname[];
+
+extern int btv;
 
 extern char erasing;
 extern unsigned long eraseMem;
@@ -217,7 +220,7 @@ extern BTRESP btresp;
 //void __delay_us(unsigned long d);
 long long my_atoll(char *instr);
 
-void sendbt(char *s);
+void sendbt(char *s, char rn);
 void WaitResp();
 char* WaitLine();
 bool RxIdle();
