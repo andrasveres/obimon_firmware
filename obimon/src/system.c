@@ -289,6 +289,9 @@ void sendbt(char *s, char rn) {
     print("-->");
     if(rn)println(s);
     else print(s);
+    
+    //strcat(usblog,"-->");
+    //strcat(usblog,s);    
 #endif    
     
     char *r = s;
@@ -354,6 +357,7 @@ void WakeRN4020() {
 void DormantRN4020() {
     WAKEHW_TRIS = 0;
     WAKEHW = 0;
+    
     __delay_ms(1);    
     send("O"); //  Goto Dormant state
     __delay_ms(1);    
@@ -440,6 +444,9 @@ char *GetRxLine() {
 #ifdef BTLOG
     print("<--");
     println(b);
+    
+    //strcat(usblog,"<--");
+    //strcat(usblog,b);  
 #endif
     return b;    
 }
@@ -581,13 +588,22 @@ void ProcRx() {
         } else if(strncmp(b, "Connection End", 14)==0) {
             btconnected = 0;
 
-        } else if(strncmp(b, "WC", 2)==0) {
+        } else if(strncmp(b, "No Connection", 13)==0) {
+            btconnected = 0;
+
+        }else if(strncmp(b, "WC", 2)==0) {
             // log("RX %s", rxbuf);
             // received config change from other end, e.g., set notification                    
             
         } else if(strncmp(b, "WV", 2)==0) {
             // log("RX %s", rxbuf);
             // received Write
+            // ProcCharWrite(b);
+            btresp = CHARWRITE;
+            
+        } else if(strncmp(b, "VV", 2)==0) {
+            // log("RX %s", rxbuf);
+            // real time read
             // ProcCharWrite(b);
             btresp = CHARWRITE;
             
@@ -691,8 +707,9 @@ int ConfRN4020() {
     WaitResp();
     if(btresp != AOK) return 6;
 
-    send("PC,%s,12,05\n",ch_gsr); // set characterictic,readable+notify, 5 bytes
-    WaitResp();
+    // send("PC,%s,12,04\n",ch_gsr); // set characterictic,readable+notify, 4 bytes
+    send("PC,%s,22,04\n",ch_gsr); // set characterictic,readable+notify+indicate, 4 bytes
+   WaitResp();
     if(btresp != AOK) return 7;
    
     
@@ -1069,7 +1086,9 @@ void SetAdvData(char *data) {
 void SendSession() {
     plog("SendSession");
     
-    char s[20];
+    //if(btconnected) return;
+    
+    char s[40];
     
     sprintf(s,"60%04x%08lx%016llx", nsent, sessionid, tick);
     SetAdvData(s);
@@ -1083,6 +1102,8 @@ void SendSession() {
 void SendCompact() {
     plog("SendCompact");
     
+    //    if(btconnected) return;
+
     char s[40];
     
     unsigned char b = (unsigned char) (vbat*10.0);
@@ -1118,6 +1139,8 @@ void SendCompact() {
 void SendBuild() {
     plog("SendBuild");
     
+    //    if(btconnected) return;
+
     char s[70];
     // send build date and api version
     
@@ -1216,15 +1239,21 @@ void SendStat() {
 }
 
 unsigned long long last_gsr_send = 0;
+int iii=0;
 void SendGsr(unsigned long gsr, unsigned char acc) {
     char s[60];
         
+    
     unsigned long d = gsr;
     d |= ((unsigned long)acc)<<24;
     
-    if(btconnected) {
+    iii++;
+    
+    if(btconnected && (iii % 2 == 0)) {
         send("SHW,%s,%08lx", handle_gsr, d); 
     }
+
+    //if(btconnected) return;
     
     if(acc > maxacc) maxacc = acc;
         
