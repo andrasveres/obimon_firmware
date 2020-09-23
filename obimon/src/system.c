@@ -1,25 +1,3 @@
-/********************************************************************
- Software License Agreement:
-
- The software supplied herewith by Microchip Technology Incorporated
- (the "Company") for its PIC(R) Microcontroller is intended and
- supplied to you, the Company's customer, for use solely and
- exclusively on Microchip PIC Microcontroller products. The
- software is owned by the Company and/or its supplier, and is
- protected under applicable copyright laws. All rights are reserved.
- Any use in violation of the foregoing restrictions may subject the
- user to criminal sanctions under applicable laws, as well as to
- civil liability for the breach of the terms and conditions of this
- license.
-
- THIS SOFTWARE IS PROVIDED IN AN "AS IS" CONDITION. NO WARRANTIES,
- WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
- TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
- IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL OR
- CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
- *******************************************************************/
-
 
 #include <system.h>
 #include <system_config.h>
@@ -76,12 +54,18 @@
 #define READ_LOW_BYTE(v)   ((unsigned char) (v))
 #define READ_HIGH_BYTE(v)  ((unsigned char) (((unsigned int) (v)) >> 8))
 
-#define BTLOG 1
+//#define BTLOG 1
 
 unsigned char rxbuf[RXL][RXN];
 char printbuf[180];
 
 char *compiledate;
+
+unsigned long memptr;      // current page to write to the flash
+
+uint64_t tick=0;
+unsigned long status = 0;
+
 
 volatile unsigned int writeptr=0;
 volatile unsigned int readptr=0;
@@ -103,9 +87,10 @@ float last_charge_bat=0;
 
 char apiversion;
 char name[20];
-char group[20];
+//char group[20];
 unsigned char hexname[60];
 unsigned char hexbuild[60];
+char mac[20];
 
 //char btversion[60];
 BTSTATE btstate=WAIT;
@@ -119,6 +104,7 @@ unsigned long G=0;
 uint32_t acc=0;
 uint32_t maxacc=0;
 
+unsigned char protect[4];
 unsigned char page[256];
 unsigned int npage=0;
 
@@ -133,7 +119,7 @@ BTRESP btresp=NONE;
 //int n_blocks_req=0;
 //unsigned int blocks_req[100];
 
-unsigned long sessionid=0;
+uint32_t sessionid=0;
 int measuring = 0;
 
 extern uint16_t SLEEPRATE;
@@ -229,11 +215,6 @@ void USBStuff() {
         APP_DeviceCDCBasicDemoTasks();
 }
 
-unsigned long memptr;      // current page to write to the flash
-
-unsigned long long tick=0;
-//unsigned long fcy = 0;
-unsigned long status = 0;
 
 
 //void __delay_us(unsigned long d) {
@@ -267,7 +248,8 @@ void CreateNewSession() {
     sessionid = rand();    
     sessionid |= 0x80000000; // set MSB
     
-    plog("session %lu", sessionid);
+    plog("CreateNewSession %08lx", sessionid);
+
 }
 
 long long my_atoll(char *instr)
@@ -348,18 +330,27 @@ void printtime() {
 */
 
 void WakeRN4020() {
+    uint64_t t1 = tick;
+    
     WAKEHW_TRIS = 0;
     WAKEHW = 1;
     //WAKEHW = 0;
-    //__delay_ms(100);       
+    //__delay_ms(100);     
+    
+    WaitResp();// wait for CMD
+    uint32_t dt = tick - t1;
+    plog("Wake dt %u", dt);
+
 }
 
 void DormantRN4020() {
+
     WAKEHW_TRIS = 0;
     WAKEHW = 0;
     
     __delay_ms(1);    
     send("O"); //  Goto Dormant state
+
     __delay_ms(1);    
 }
 
@@ -426,9 +417,12 @@ void InitInternalADC() {
 
 char *private_service = "43974957348793475977654321987654";
 
-char *ch_gsr = "43789734979834798347983479887878";
-char *ch_data = "43789734979834798347983479887879";
-char *ch_data_req = "4378973497983479834798347988787a";
+char *ch_gsr =          "43789734979834798347983479887878";
+char *ch_data =         "43789734979834798347983479887879";
+char *ch_data_req =     "4378973497983479834798347988787a";
+char *ch_name =         "4378973497983479834798347988787b";
+//char *ch_sessionid =    "4378973497983479834798347988787c";
+char *ch_tick =         "4378973497983479834798347988787d";
 
 char handle_gsr[5];
 
@@ -505,22 +499,25 @@ void ChangeName(char *n) {
     plog("Change name %s", name);
     WriteConfig(CONF_NAME);
     ReadConfig(CONF_NAME);
-}
-
-void ChangeGroup(char *n) {    
-    strncpy(group, n, 8);
-    plog("Change group %s", group);
-
-    WriteConfig(CONF_NAME);
-    ReadConfig(CONF_NAME);
     
+    // need to BLE notify
+    SetCharData();
 }
+
+//void ChangeGroup(char *n) {    
+//    strncpy(group, n, 8);
+//    plog("Change group %s", group);
+//
+//    WriteConfig(CONF_NAME);
+//    ReadConfig(CONF_NAME);
+//    
+//}
 
 char* WaitLine() {
     char *b;
     unsigned long long t = tick;
     while((b=GetRxLine())==NULL && (tick - t < 32768L*5));
-    unsigned long dt = tick - t;
+    //unsigned long dt = tick - t;
     //log("   dt=%lu", dt);
     
 //#ifdef BTLOG
@@ -607,7 +604,7 @@ void ProcRx() {
             // ProcCharWrite(b);
             btresp = CHARWRITE;
             
-        } else plog("RX");
+        } else plog("RX %s", b);
 
         ReleaseRxLine();
     }
@@ -666,9 +663,14 @@ void UpgradeRN() {
         
         plog("%s", b);
 
-        if (strncmp(b, "Conn", 3) == 0) {
+        if (strncmp(b, "ConnParam", 9) == 0) {
             connected = 1;
             plog("CONNECTED ----- ");
+        }
+        if (strncmp(b, "Connection End", 14) == 0) {
+            //connected = 0;
+            //t = tick;
+            plog("DISCONNECTED ----- ");
         }
 
         if (connected && strcmp(b, "CMD") == 0) {
@@ -709,9 +711,13 @@ int ConfRN4020() {
 
     // send("PC,%s,12,04\n",ch_gsr); // set characterictic,readable+notify, 4 bytes
     send("PC,%s,22,04\n",ch_gsr); // set characterictic,readable+notify+indicate, 4 bytes
-   WaitResp();
+    WaitResp();
     if(btresp != AOK) return 7;
    
+    send("PC,%s,02,14\n",ch_name); // set characterictic,readable 20 bytes
+    WaitResp();
+    if(btresp != AOK) return 7;
+    
     
     send("U"); // unbond?
     WaitResp();
@@ -744,6 +750,13 @@ int ConfRN4020() {
     return 0;
 }
 
+void SetCharData() {
+    if(btv>=133) {
+        send("SUW,%s,%s", ch_name, hexname); // here we use long format and not the handle! We should change it to handle
+    }
+
+}
+ 
 int ConfRN4020_new() {
     plog("ConfRN4020_new");
     
@@ -775,11 +788,19 @@ int ConfRN4020_new() {
     WaitResp();
     if(btresp != AOK) return 7;
     
-    send("PC,%s,10,14\n",ch_data); // set characterictic,notify, 20 bytes
-    WaitResp();
-    if(btresp != AOK) return 7;
+    //send("PC,%s,10,14\n",ch_data); // set characterictic,notify, 20 bytes
+    //WaitResp();
+    //if(btresp != AOK) return 7;
 
-    send("PC,%s,0a,14\n",ch_data_req); // set characterictic, read, write, 20 bytes
+    send("PC,%s,12,14\n",ch_name); // set characterictic, read+notify, 20 bytes
+    WaitResp();
+    if(btresp != AOK) return 7;    
+    
+    //send("PC,%s,02,04\n",ch_sessionid); // set characterictic, read, 4 bytes
+    //WaitResp();
+    //if(btresp != AOK) return 7;    
+    
+    send("PC,%s,12,0c\n",ch_tick); // set characterictic, read+notify, 12 bytes
     WaitResp();
     if(btresp != AOK) return 7;    
     
@@ -796,6 +817,17 @@ int ConfRN4020_new() {
         plog("Warning command failed");
     }
     
+    send("GDS");
+    char *b = WaitLine();
+    if(b!=NULL) {
+        strncpy(mac, b, 20);
+        plog("MAC: %s", mac);
+        ReleaseRxLine();
+    } else {
+        mac[0]=0;
+    }
+    
+    //0491623C99D0
     
     send("S-,OBIMON");    
     WaitResp();
@@ -874,7 +906,7 @@ void WriteConfig(char conf) {
         case CONF_NAME: {
             plog("WriteConfig NAME");        
             strcpy(tmp, name);
-            strcpy(tmp+20, group);
+            //strcpy(tmp+20, group);
             break;
         }
             
@@ -918,6 +950,7 @@ void ReadConfig(char conf) {
                 strcpy((char*)name, tmp);        
             }
             
+            /*
             if(tmp[20]==255 || strlen(tmp+20)>8 || strlen(tmp+20)==0) {
                 strcpy((char*)group, "nogroup");
             } else {
@@ -926,10 +959,12 @@ void ReadConfig(char conf) {
             }
             
             // plog("N %s", group);
+            */
             
             NameToHex();    
-            plog("ReadConfig name %s group %s", name, group);
-        
+            //plog("ReadConfig name %s group %s", name, group);
+            plog("ReadConfig name %s", name);
+
             break;
         }
         
@@ -947,52 +982,52 @@ void NameToHex() {
         i++;            
     }
 
-    sprintf(hexname, "%s00", (char*)hexname);
+    //sprintf(hexname, "%s00", (char*)hexname);
 
-    i=0;
-    while(group[i]!=0) {
-        sprintf((char*)hexname, "%s%02x", (char*)hexname, group[i]);
-        i++;            
-    }    
+//    i=0;
+//    while(group[i]!=0) {
+//        sprintf((char*)hexname, "%s%02x", (char*)hexname, group[i]);
+//        i++;            
+//    }    
 
 }
 
-void BatCheck() {    
-
-    ReadVoltage();
-        
-    if(vdd > 3.0) return;
-    
-    plog("VDD too low %f", vdd);
-    
-    int nbt=0;
-    
-    // histeresis
-    while(vdd < 3.2) {
-        
-        DormantRN4020();
-        
-        unsigned long long last = tick;
-        while(tick - last < 30 * 32768) {
-            Sleep();
-            if(USB_BUS_SENSE) break;
-        }
-        WakeRN4020();
-        
-        LED_On(RED);
-        Sleep();
-        LED_Off(RED);
-
-        nbt ++;
-        
-        if((nbt%2)==0) SendCompact();
-        else SendSession();
-
-        ReadVoltage();        
-    }
-    
-    asm ("RESET");
-}
+//void BatCheck() {    
+//
+//    ReadVoltage();
+//        
+//    if(vdd > 3.0) return;
+//    
+//    plog("VDD too low %f", vdd);
+//    
+//    int nbt=0;
+//    
+//    // histeresis
+//    while(vdd < 3.2) {
+//        
+//        DormantRN4020();
+//        
+//        unsigned long long last = tick;
+//        while(tick - last < 30 * 32768) {
+//            Sleep();
+//            if(USB_BUS_SENSE) break;
+//        }
+//        WakeRN4020();
+//        
+//        LED_On(RED);
+//        Sleep();
+//        LED_Off(RED);
+//
+//        nbt ++;
+//        
+//        if((nbt%2)==0) SendCompact();
+//        else SendSession();
+//
+//        ReadVoltage();        
+//    }
+//    
+//    asm ("RESET");
+//}
 
 //unsigned long long last_log_flash = 0;
 //void WriteLogFlash() {
@@ -1051,8 +1086,14 @@ void BuildToHex() {
 }
 
 void Adverstise() {
-    //send("A,0050,0060"); // advesrtise interval 80ms for 81 sec (so that only sent once)
-    send("A,0050,07d0"); // interval 80 msec, duration 2 sec 
+    if(sleeping) { 
+       send("A,0014,0064"); // interval 20 msec, duration 200 msec 
+    } else {
+       send("A,0032,0064"); // interval 50 msec, duration 100 msec    
+    }
+    
+    WaitResp(); // AAA
+
 }
 
 //void SendTimestamp() {
@@ -1070,41 +1111,51 @@ void SetAdvData(char *data) {
     
     if(btv==133) {
         sendbt("Y",1);    
-        sendbt("NZ",1);
+        WaitResp(); // AAA
 
-        if(btconnected) sendbt("NB,FF",0);
-        else sendbt("NA,FF",0);
+        sendbt("NZ",1);
+        WaitResp(); // AAA
+
+        if(btconnected || sleeping) sendbt("NB,FF",0); // send nonconnectable advertisement
+        //if(btconnected) sendbt("NB,FF",0); // send nonconnectable advertisement
+        else sendbt("NA,FF",0); // send connectable
 
         sendbt(data,1);
+        WaitResp(); // AAA
 
     } else {
         sendbt("N,",0);
         sendbt(data,1);
+        WaitResp(); // AAA
     }
+    
+    
+
 }
 
 void SendSession() {
-    plog("SendSession");
+    plog("SendSession %08lx", sessionid);
     
     //if(btconnected) return;
     
-    char s[40];
+    //char s[40];
     
-    sprintf(s,"60%04x%08lx%016llx", nsent, sessionid, tick);
-    SetAdvData(s);
+    sprintf(printbuf,"60%04x%08lx%016llx", nsent, sessionid, tick);
+    SetAdvData(printbuf);
 
     //send("N,60%04x%08lx%016llx", nsent, sessionid, tick);    
-    
+        
     nsent++;
     Adverstise();    
+    
+    if(!sleeping) send("SUW,%s,%08lx%016llx", ch_tick, sessionid, tick); // here we use long format and not the handle! We should change it to handle
+
 }
 
-void SendCompact() {
-    plog("SendCompact");
-    
+void SendCompact() {    
     //    if(btconnected) return;
 
-    char s[40];
+    //char s[40];
     
     unsigned char b = (unsigned char) (vbat*10.0);
     unsigned char m = (unsigned char) (100 * (memptr-65536) / (MEMSIZE-65536));
@@ -1112,8 +1163,8 @@ void SendCompact() {
     
     plog("SendCompact %f b:%u m:%u s:%u", vbat, b,m,ss);
     
-    sprintf(s,"14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, ss, hexname);
-    SetAdvData(s);
+    sprintf(printbuf,"14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, ss, hexname);
+    SetAdvData(printbuf);
     
     nsent++;        
     Adverstise();    
@@ -1141,11 +1192,11 @@ void SendBuild() {
     
     //    if(btconnected) return;
 
-    char s[70];
+    //char s[70];
     // send build date and api version
     
-    sprintf(s,"13%04x%s", nsent, hexbuild);    
-    SetAdvData(s);
+    sprintf(printbuf,"13%04x%s", nsent, hexbuild);    
+    SetAdvData(printbuf);
     nsent++;        
     Adverstise();            
 }
@@ -1222,7 +1273,7 @@ void RN4020OTA() {
 
 unsigned nbt=0;
 void SendStat() {
-    plog("Send stat");
+    plog("%llu Send stat", tick);
     //log("%s", compiledate);
     
     nbt++;
@@ -1257,7 +1308,10 @@ void SendGsr(unsigned long gsr, unsigned char acc) {
     
     if(acc > maxacc) maxacc = acc;
         
-    if (tick - last_gsr_send >= 32768L / 1L) {
+    long period = 32768L;
+    if(btv < 133) period = 32768/4;
+    
+    if (tick - last_gsr_send >= period) {
         maxacc=0;
         last_gsr_send = tick;
 
@@ -1296,7 +1350,7 @@ void ReadVoltage() {
     // Or is the bandgap reference affected somehow?
     if(USB_BUS_SENSE==0) AD1CON1bits.ADON = 0; //Turn off A/D
        
-    plog("vdd %f vbat %f", vdd, vbat);
+    //plog("vdd %f vbat %f", vdd, vbat);
 
 }
 
@@ -1731,3 +1785,18 @@ void GetTimeStamp() {
    timestamp[7] = READ_HIGH_BYTE(i);
 }
 */
+
+void Hack() {
+    uint64_t rt = 4*3600*32768LL;
+    float remain = (rt-tick) / 32768.0 / 3600.0;
+
+    plog("Check HACK remaining hours: %f", remain);
+    if(!measuring) {        
+        //if(tick > 1*60*32768LL) {
+
+        if(tick > rt) {
+            plog("4H RESET");
+            asm ("RESET");
+        }
+    }
+}
