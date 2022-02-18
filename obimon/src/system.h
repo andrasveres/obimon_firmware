@@ -1,24 +1,3 @@
-/********************************************************************
- Software License Agreement:
-
- The software supplied herewith by Microchip Technology Incorporated
- (the "Company") for its PIC(R) Microcontroller is intended and
- supplied to you, the Company's customer, for use solely and
- exclusively on Microchip PIC Microcontroller products. The
- software is owned by the Company and/or its supplier, and is
- protected under applicable copyright laws. All rights are reserved.
- Any use in violation of the foregoing restrictions may subject the
- user to criminal sanctions under applicable laws, as well as to
- civil liability for the breach of the terms and conditions of this
- license.
-
- THIS SOFTWARE IS PROVIDED IN AN "AS IS" CONDITION. NO WARRANTIES,
- WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
- TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
- IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL OR
- CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
- *******************************************************************/
 
 #ifndef SYSTEM_H
 #define SYSTEM_H
@@ -47,11 +26,17 @@ typedef enum
 } SYSTEM_STATE;
 
 extern char printbuf[180];
+extern char btbuf[180];
+
+//extern char usblog[];
 
 #define plog(...) {sprintf(printbuf, "LOG "__VA_ARGS__); println(printbuf);}
+//#define plog(...) {sprintf(printbuf, "\nLOG "__VA_ARGS__); strcat(usblog, printbuf);}
+
+
 //#define plog(...) {}
 
-#define send(...) {sprintf(printbuf, __VA_ARGS__); sendbt(printbuf, 1);}
+#define send(...) {sprintf(btbuf, __VA_ARGS__); sendbt(btbuf, 1);}
 
 // 8 Meg spansion flash
 #define MEMSIZE 8388608L
@@ -86,7 +71,7 @@ extern const char CompileTime[];
 
 extern char apiversion;
 extern char name[];
-extern char group[];
+//extern char group[];
 extern unsigned char hexname[];
 
 extern int btv;
@@ -97,6 +82,7 @@ extern unsigned long eraseMem;
 extern unsigned short nsent;
 extern unsigned long long lastUsb;
 
+extern unsigned char protect[4];
 extern unsigned char page[256];
 extern unsigned int npage;
 
@@ -114,19 +100,19 @@ extern unsigned long status;
 extern unsigned long hres;
 extern unsigned long G;
 
-extern unsigned long long uptime;
-extern unsigned long long uptime_meas;
+//extern unsigned long long uptime;
+//extern unsigned long long uptime_meas;
 extern float last_charge_bat; 
 
-extern unsigned long long tick;
-extern unsigned long long lastSync;
+//extern uint64_t tick;
+//extern uint64_t lastSync;
 extern int needSync;
 extern int role;
 //extern unsigned int sessionid;
 
-extern unsigned long long nextAdjust;
-extern unsigned long long adjust;
-extern int adjustWith;
+//extern unsigned long long nextAdjust;
+//extern unsigned long long adjust;
+//extern int adjustWith;
 
 extern unsigned long memptr;
 
@@ -254,11 +240,12 @@ void FastClock();
 void SlowClock();
 
 void ChangeName(char *n);
-void ChangeGroup(char *n);
+//void ChangeGroup(char *n);
 
 int InitRN4020();
 void WakeRN4020();
 void DormantRN4020();
+void SetCharData();
 
 void InitInternalADC();
 void ReadVoltage();
@@ -272,6 +259,7 @@ void ReadConfigAll();
 void WriteLogFlash();
 
 void CreateNewSession();
+void RN4020OTA();
 
 /*********************************************************************
 * Function: void SYSTEM_Initialize( SYSTEM_STATE state )

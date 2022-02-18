@@ -54,19 +54,21 @@
 #define READ_LOW_BYTE(v)   ((unsigned char) (v))
 #define READ_HIGH_BYTE(v)  ((unsigned char) (((unsigned int) (v)) >> 8))
 
-//#define BTLOG 1
+#define BTLOG 1
 
 unsigned char rxbuf[RXL][RXN];
 char printbuf[180];
+char btbuf[180];
 
 char *compiledate;
 
 unsigned long memptr;      // current page to write to the flash
 
 uint64_t tick=0;
+uint64_t lastKeepAlive = 0;
 unsigned long status = 0;
 
-
+ 
 volatile unsigned int writeptr=0;
 volatile unsigned int readptr=0;
 
@@ -91,6 +93,8 @@ char name[20];
 unsigned char hexname[60];
 unsigned char hexbuild[60];
 char mac[20];
+
+unsigned int training = 0;
 
 //char btversion[60];
 BTSTATE btstate=WAIT;
@@ -421,7 +425,7 @@ char *ch_gsr =          "43789734979834798347983479887878";
 char *ch_data =         "43789734979834798347983479887879";
 char *ch_data_req =     "4378973497983479834798347988787a";
 char *ch_name =         "4378973497983479834798347988787b";
-//char *ch_sessionid =    "4378973497983479834798347988787c";
+char *ch_keepalive =    "4378973497983479834798347988787c";
 char *ch_tick =         "4378973497983479834798347988787d";
 
 char handle_gsr[5];
@@ -436,7 +440,7 @@ char *GetRxLine() {
     char *b = (char*)rxbuf[rptr];
 
 #ifdef BTLOG
-    print("<--");
+    print("                 <--");
     println(b);
     
     //strcat(usblog,"<--");
@@ -504,15 +508,6 @@ void ChangeName(char *n) {
     SetCharData();
 }
 
-//void ChangeGroup(char *n) {    
-//    strncpy(group, n, 8);
-//    plog("Change group %s", group);
-//
-//    WriteConfig(CONF_NAME);
-//    ReadConfig(CONF_NAME);
-//    
-//}
-
 char* WaitLine() {
     char *b;
     unsigned long long t = tick;
@@ -541,7 +536,7 @@ void WaitResp() {
 
         __delay_ms(10);
         if((n%100)==0) {
-            plog("dt %lu %llu", dt, tick);
+            plog("              NO RESPONSE %lu", dt);
         }
         ProcRx();
         
@@ -581,6 +576,12 @@ void ProcRx() {
 
         } else if(strncmp(b, "Connected", 9)==0) {
             btconnected = 1;
+            lastKeepAlive = tick;
+            // for some reason for some phones Connected is not printed, only ConnParam ?!
+        
+        } else if(strncmp(b, "ConnParam", 9)==0) {
+            btconnected = 1;
+            lastKeepAlive = tick;
         
         } else if(strncmp(b, "Connection End", 14)==0) {
             btconnected = 0;
@@ -595,7 +596,7 @@ void ProcRx() {
         } else if(strncmp(b, "WV", 2)==0) {
             // log("RX %s", rxbuf);
             // received Write
-            // ProcCharWrite(b);
+            ProcCharWrite(b);
             btresp = CHARWRITE;
             
         } else if(strncmp(b, "VV", 2)==0) {
@@ -608,6 +609,12 @@ void ProcRx() {
 
         ReleaseRxLine();
     }
+}
+
+
+void ProcCharWrite(char *b) {
+    lastKeepAlive = tick;
+    
 }
 
 int InitRN4020() {
@@ -654,31 +661,37 @@ void UpgradeRN() {
     unsigned long long t = tick;
 
     while (1) {
-        if(connected==0 && tick - t > 32768L * 60L) {
-            asm("RESET");            
-        }
-        
-        char *b = WaitLine();
-        if (b == NULL) continue;
-        
-        plog("%s", b);
+//        if(connected==0 && tick - t > 32768L * 60L) {
+//            asm("RESET");            
+//        }
 
-        if (strncmp(b, "ConnParam", 9) == 0) {
-            connected = 1;
-            plog("CONNECTED ----- ");
-        }
-        if (strncmp(b, "Connection End", 14) == 0) {
-            //connected = 0;
-            //t = tick;
-            plog("DISCONNECTED ----- ");
-        }
+        USBStuff();
 
+        ProcRx();
+        
+//        char *b = WaitLine();
+//        if (b == NULL) continue;
+//        
+//        plog("%s", b);
+//
+//        if (strncmp(b, "ConnParam", 9) == 0) {
+//            connected = 1;
+//            plog("CONNECTED ----- ");
+//        }
+//        if (strncmp(b, "Connection End", 14) == 0) {
+//            //connected = 0;
+//            //t = tick;
+//            plog("DISCONNECTED ----- ");
+//        }
+
+        /*
         if (connected && strcmp(b, "CMD") == 0) {
             plog("Upgrade OK -----------------");
             asm("RESET");
         }
+        */
         
-        ReleaseRxLine();
+        //ReleaseRxLine();
         
     }    
 }
@@ -753,6 +766,7 @@ int ConfRN4020() {
 void SetCharData() {
     if(btv>=133) {
         send("SUW,%s,%s", ch_name, hexname); // here we use long format and not the handle! We should change it to handle
+        WaitResp();
     }
 
 }
@@ -784,7 +798,7 @@ int ConfRN4020_new() {
     WaitResp();
     if(btresp != AOK) return 6;
 
-    send("PC,%s,12,05\n",ch_gsr); // set characterictic,readable+notify, 2 bytes
+    send("PC,%s,32,04\n",ch_gsr); // set characterictic,readable+notify+indication, 4 bytes
     WaitResp();
     if(btresp != AOK) return 7;
     
@@ -796,9 +810,9 @@ int ConfRN4020_new() {
     WaitResp();
     if(btresp != AOK) return 7;    
     
-    //send("PC,%s,02,04\n",ch_sessionid); // set characterictic, read, 4 bytes
-    //WaitResp();
-    //if(btresp != AOK) return 7;    
+    send("PC,%s,0A,04\n",ch_keepalive); // set characterictic, write, 4 bytes
+    WaitResp();
+    if(btresp != AOK) return 7;    
     
     send("PC,%s,12,0c\n",ch_tick); // set characterictic, read+notify, 12 bytes
     WaitResp();
@@ -827,13 +841,15 @@ int ConfRN4020_new() {
         mac[0]=0;
     }
     
-    //0491623C99D0
+
     
-    send("S-,OBIMON");    
+    sendbt("SN,",0);    
+    sendbt(name,1);    
     WaitResp();
     if(btresp != AOK) {
         plog("Warning command failed");
     }
+  
     
     plog("now reboot bt");
     
@@ -948,6 +964,9 @@ void ReadConfig(char conf) {
                 strcpy((char*)name, "unset");
             } else {
                 strcpy((char*)name, tmp);        
+                
+                if(name[0]=='_') training = 1;
+                else training = 0;
             }
             
             /*
@@ -1089,7 +1108,15 @@ void Adverstise() {
     if(sleeping) { 
        send("A,0014,0064"); // interval 20 msec, duration 200 msec 
     } else {
-       send("A,0032,0064"); // interval 50 msec, duration 100 msec    
+        
+       if(btconnected == 0 && measuring && training) {
+           //send("A,0032,03e8"); // interval 50 msec, duration 1000 msec            
+           send("A,0032,0064"); // interval 50 msec, duration 100 msec    
+
+       }
+       else {
+           send("A,0032,0064"); // interval 50 msec, duration 100 msec    
+       }
     }
     
     WaitResp(); // AAA
@@ -1110,18 +1137,75 @@ void Adverstise() {
 void SetAdvData(char *data) {
     
     if(btv==133) {
-        sendbt("Y",1);    
-        WaitResp(); // AAA
+        
+        if(training) {
+            plog("A");
 
-        sendbt("NZ",1);
-        WaitResp(); // AAA
+            sendbt("Y",1);    // Stop advertisement
+            WaitResp(); // AAA
 
-        if(btconnected || sleeping) sendbt("NB,FF",0); // send nonconnectable advertisement
+            if(sleeping) return;
+            if(btconnected) return;
+            
+            sendbt("NZ",1);
+            WaitResp(); 
+            
+            //sendbt("NA,09", 0);
+            //sendbt(hexname, 1);
+            //WaitResp(); 
+
+            return;
+        }
+
+        if(btconnected || sleeping) {
+            
+            sendbt("Y",1);    // Stop advertisement
+            WaitResp(); // AAA
+
+            sendbt("NZ",1);
+            WaitResp(); // AAA
+        
+            sendbt("NB,FF",0); // send nonconnectable advertisement
+            sendbt(data,1);
+            
+            WaitResp(); // AAA
+            
+            return;
+
+        } 
+        
+        else {
+            
+            sendbt("Y",1);    // Stop advertisement
+            WaitResp(); // AAA
+
+            sendbt("NZ",1);
+            WaitResp(); 
+
+            if(btconnected == 0 && training) {
+                
+                // if we are advertising GSR, every x time we send default adv payload
+                // to be able to discover services
+
+                // if(rand()%10<5) return; // send PS
+                
+                // send "complete local name"
+                sendbt("NA,09", 0);
+                sendbt(hexname, 1);
+                WaitResp(); 
+
+                return;
+                
+                
+            }
+            
+            sendbt("NA,FF",0); // send connectable
+            sendbt(data,1);
+
+            WaitResp(); // AAA
+        }
+
         //if(btconnected) sendbt("NB,FF",0); // send nonconnectable advertisement
-        else sendbt("NA,FF",0); // send connectable
-
-        sendbt(data,1);
-        WaitResp(); // AAA
 
     } else {
         sendbt("N,",0);
@@ -1140,15 +1224,18 @@ void SendSession() {
     
     //char s[40];
     
-    sprintf(printbuf,"60%04x%08lx%016llx", nsent, sessionid, tick);
-    SetAdvData(printbuf);
+    sprintf(btbuf,"60%04x%08lx%016llx", nsent, sessionid, tick);
+    SetAdvData(btbuf);
 
     //send("N,60%04x%08lx%016llx", nsent, sessionid, tick);    
         
     nsent++;
     Adverstise();    
     
-    if(!sleeping) send("SUW,%s,%08lx%016llx", ch_tick, sessionid, tick); // here we use long format and not the handle! We should change it to handle
+    if(!sleeping) {
+        send("SUW,%s,%08lx%016llx", ch_tick, sessionid, tick); // here we use long format and not the handle! We should change it to handle
+        WaitLine();
+    }
 
 }
 
@@ -1163,8 +1250,8 @@ void SendCompact() {
     
     plog("SendCompact %f b:%u m:%u s:%u", vbat, b,m,ss);
     
-    sprintf(printbuf,"14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, ss, hexname);
-    SetAdvData(printbuf);
+    sprintf(btbuf,"14%04x%02x%02x%02x%04x%s", nsent, apiversion, b, m, ss, hexname);
+    SetAdvData(btbuf);
     
     nsent++;        
     Adverstise();    
@@ -1195,8 +1282,8 @@ void SendBuild() {
     //char s[70];
     // send build date and api version
     
-    sprintf(printbuf,"13%04x%s", nsent, hexbuild);    
-    SetAdvData(printbuf);
+    sprintf(btbuf,"13%04x%s", nsent, hexbuild);    
+    SetAdvData(btbuf);
     nsent++;        
     Adverstise();            
 }
@@ -1227,7 +1314,7 @@ void RN4020OTA() {
     send("SF,2");    // factory reset
     if(WaitLine()==NULL) return;
     ReleaseRxLine();
-    __delay_ms(5000);
+    __delay_ms(1000);
     send("SR,10008000");    
     //send("SR,32008000");
     
@@ -1302,6 +1389,11 @@ void SendGsr(unsigned long gsr, unsigned char acc) {
     
     if(btconnected && (iii % 2 == 0)) {
         send("SHW,%s,%08lx", handle_gsr, d); 
+        WaitResp();
+    }
+    
+    if(btconnected == 0 && training) {
+        
     }
 
     //if(btconnected) return;

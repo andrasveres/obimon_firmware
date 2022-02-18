@@ -1,25 +1,3 @@
-/********************************************************************
- Software License Agreement:
-
- The software supplied herewith by Microchip Technology Incorporated
- (the "Company") for its PIC(R) Microcontroller is intended and
- supplied to you, the Company's customer, for use solely and
- exclusively on Microchip PIC Microcontroller products. The
- software is owned by the Company and/or its supplier, and is
- protected under applicable copyright laws. All rights are reserved.
- Any use in violation of the foregoing restrictions may subject the
- user to criminal sanctions under applicable laws, as well as to
- civil liability for the breach of the terms and conditions of this
- license.
-
- THIS SOFTWARE IS PROVIDED IN AN "AS IS" CONDITION. NO WARRANTIES,
- WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
- TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
- IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL OR
- CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
- *******************************************************************/
-
 // ANDRAS Need to add hid_boot_p24fj64gb0004.gld to "Linker files "-- this is linked from the bootloader project
 
 
@@ -49,7 +27,7 @@
 
 ////////////////////////////////////////////////////////////////////////////// TODO
 
-
+   
 
 const char __attribute__((space(prog), address(0x2000))) CCC[] = __DATE__;
 
@@ -60,10 +38,13 @@ int dump=0;
 unsigned long dumpaddr=0;
 
 void SleepObi();
+void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc);
 
 extern uint32_t acc;
 extern uint32_t maxacc;
 extern bool opamp;
+extern unsigned int training;
+extern int measuring ;
 
 extern char handle_gsr[5];
 
@@ -71,14 +52,19 @@ extern char tmp[256];
 
 extern int n_blocks_req;
 extern char* ch_data;
+extern char *ch_name;
+extern char *ch_tick;
 
-extern int sessionid;
+extern uint32_t sessionid;
 extern unsigned long dumping;
 
 uint64_t next_sample = 0;
 
 uint32_t cumulative_a = 0;
 uint8_t cumulative_n = 0;
+
+extern uint64_t tick;
+extern uint64_t lastKeepAlive;
 
 extern uint32_t rawadc;
 
@@ -87,6 +73,8 @@ char is=0;
 unsigned char lis = 0;
 
 extern unsigned int vddraw, vbatraw; 
+
+//extern char usblog[256];
 
 uint16_t SLEEPRATE = 128;
 uint16_t SAMPLERATE = 8;
@@ -114,7 +102,7 @@ void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
         if (getcontadc(&a)) {
 
             noadc=0;
-            // plog("A %lu", a);
+            //plog("A %lu", a);
 
             // if no subsampling
             if (SAMPLERATE == 0) {
@@ -125,12 +113,19 @@ void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
                 cumulative_a += a;
                 cumulative_n++;
 
+                // have we passed the next sample time
                 if (tick >= next_sample) {
 
                     a = cumulative_a / cumulative_n;
-                    adc_put(a, next_sample);
 
                     next_sample += 32768 / SAMPLERATE;
+
+                    if(next_sample < tick) {
+                        plog("              JUMP");
+                        next_sample = tick + 32768 / SAMPLERATE;
+                    } else {                    
+                        adc_put(a, next_sample);
+                    }
 
                     cumulative_a = 0;
                     cumulative_n = 0;
@@ -316,17 +311,26 @@ unsigned long CalcGsr(unsigned long h) {
 // ===========================================================================
 MAIN_RETURN main(void)
 {
+    //usblog[0]=0;
+    
     apiversion = 2;
     
     //uptime = 0;
-    uptime_meas = 0;
         
-    tick = 0;
+    //tick = 0x100000000LL;
+    //tick = 0x1000000LL;
+    
     InitPorts(); // Set TRIS and set all CS, power etc to off state
     
     LED_On(GREEN);
     __delay_ms(100);
     LED_Off(GREEN);
+    
+    protect[0]=0x11;
+    protect[1]=0x22;
+    protect[2]=0x33;
+    protect[3]=0x44;
+    
 
     
     LED_On(RED);
@@ -417,6 +421,7 @@ MAIN_RETURN main(void)
     PowerOpamp(true);
     __delay_ms(100);
     enable_cont_adc();
+    clear_adc_buf();
             
     InitInternalADC();
         
@@ -471,8 +476,8 @@ MAIN_RETURN main(void)
 //        
 //    }
     
-    if(btv<133) ConfRN4020();
-    else ConfRN4020_new();
+    //if(btv<133) ConfRN4020();
+    //else 
        
 
     // TEST
@@ -554,10 +559,12 @@ MAIN_RETURN main(void)
     
     //DormantRN4020();
     //while(1);
-        
+    
+    ReadVoltage();     
     // if vdd is ok, we continue
     // if vdd is not ok we wait in loop and then do a system reset!
-    BatCheck();
+    //BatCheck();
+    
 
     // we should read flash memory JEDEC (vendor and id)
     // microchip 25vf... is end-of-life! The others are all page write type
@@ -583,8 +590,11 @@ MAIN_RETURN main(void)
 
     ReadConfigAll();
    
+
     plog("ReadConf OK");    
 //    while(1);        
+
+    ConfRN4020_new();
 
     // = findmem();
     //plog("Memptr %lu", memptr);
@@ -641,7 +651,6 @@ MAIN_RETURN main(void)
     
     int ninvalid=0;
     int nadcerr=0;
-    extern int measuring ;
     measuring = 0;
 
     // Start USB
@@ -662,6 +671,9 @@ MAIN_RETURN main(void)
     
     //unsigned int seed = ()
     CreateNewSession(); // we maintain the same sessionid until the device is powered up
+    SetCharData();
+    
+    uint64_t lastwrite=0;
     
     while(1)
     {        
@@ -748,7 +760,7 @@ MAIN_RETURN main(void)
         
             G = CalcGsr(a);                        
 
-            //plog("G %llu %lu", ts, G);
+            //plog("G %llu %lu measuring %u", ts, G, measuring);
             
             if (lis) {
                acc = lis_readacc();
@@ -767,6 +779,11 @@ MAIN_RETURN main(void)
             if (measuring) {
                 SendGsr(G,acc);            
                 WriteGsr(ts, G, acc);
+                
+//                int dt = ts - lastwrite;
+//                //if(ts-lastwrite>4096) 
+//                plog("                DTS %llu %llu %u", ts, lastwrite, dt);
+//                lastwrite = ts;
             }
 
             // we only switch to no measuring, when a page is just written, so that all data are flushed
@@ -775,9 +792,13 @@ MAIN_RETURN main(void)
         }
         
         if(tick - last_stat > 7*32768L) {
-            SendStat();
+            if(training == 0) SendStat();
             last_stat = tick;
+            
+            Hack(); // Reset every 4 hours if not measuring
         } 
+        
+
                                
         if(USB_BUS_SENSE==0 && measuring == 0) {
             
@@ -790,7 +811,6 @@ MAIN_RETURN main(void)
             //log("Reset sync");            
         }
         
-        sleeping = 0;
 
 //        r = triggeradc();
 //        if(res ==0) {
@@ -799,9 +819,13 @@ MAIN_RETURN main(void)
 //           if(res == 0) plog("Retr failed");
 //        }
         
-        if(measuring) {
-            uptime_meas++;
+        if(btconnected && tick - lastKeepAlive > 10 *32768L) {
+            plog("\t\t\tBT TIMEOUT");
+            sendbt("K",1); // kill konnection
+            WaitResp(); // AAA
+
         }
+
         
         //LED_Off(GREEN);
         // Flash every 5 sec
@@ -809,9 +833,18 @@ MAIN_RETURN main(void)
         //if(tick<31360154599424LL && n_flash>DT/4 || valid && ((tick & (32768-1)) == 0) || ((tick & (32768*8-1)) == 0)) {
         if(tick - last_bat_check > 4 *32768L) {
             
+            plog("CHECK CONN");
+            sendbt("Q",1); // check connnection status
+            WaitResp(); // AAA
+
+
+            // sendbt("GT",1); // check connnection status
+            SetCharData();
+            
             last_bat_check = tick;
 
-            BatCheck();
+            //BatCheck();
+            ReadVoltage(); 
 
             plog("VDD %.2f VBAT %.2f CHGSTAT %u USB %u G:%lu", vdd, vbat, CHGSTAT, USB_BUS_SENSE, G);
             plog("measuring %u memptr %lu npage %u", measuring, memptr, npage);
@@ -828,7 +861,6 @@ MAIN_RETURN main(void)
             
             if(USB_BUS_SENSE) {
                 //uptime = 0;
-                uptime_meas = 0;
                 last_charge_bat = 0;
             } else if(last_charge_bat == 0) last_charge_bat = vbat; // we only upgrade last_charge_but when we unplugged the charger
             
@@ -849,11 +881,14 @@ void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc) {
         return;
     }
     
+    if(protect[0]!=0x11 || protect[1]!=0x22 || protect[2]!=0x33 || protect[3]!=0x44) plog("+++++++++++++++ PROTECTION ERR");
+    
     // write a header
     if (npage == 0) {
         //unsigned long long x = 6;
         //log("T %lu", memptr);
-        plog("Write header %llu", ts);
+        //plog("Write header %llu %lu", ts, sessionid);
+        plog("Write header %08lx ts %llx", sessionid, ts);
 
         memcpy(page + npage, (unsigned char*) (&ts), 8);
         npage += 8;
@@ -894,7 +929,15 @@ void SleepObi() {
     plog("SleepObi ======");
     // GO TO SLEEP        
     int nsleep = 0;
-    //int myoffset = rand() % 16;        
+    //int myoffset = rand() % 16;    
+
+    sleeping =1;
+
+    if(btconnected) {
+        send("K"); //  Kill current connection is any
+        WaitResp();
+    }
+    
     
     LED_Off(RED);
     LED_Off(GREEN);
@@ -904,20 +947,21 @@ void SleepObi() {
     
     USBOff();
     
+    disable_cont_adc();
+
+    
     unsigned long long nextstat = NextStatTime();
         
     int n= 0;
     
     while(1) {
-        plog("SLEEP LOOP -------------");
+        plog("%llu SLEEP LOOP -------------", tick);
+        
 
         ProcRx();
             
         nsleep ++;
-        sleeping = 1;
-        
-        disable_cont_adc();
-        
+                
         if(USB_BUS_SENSE) {
             WakeRN4020();
 
@@ -939,7 +983,8 @@ void SleepObi() {
         
         if(n % 8 == 0) { // every 8 sec
             //log("Check %llu", tick);
-            
+            Hack(); // Reset every 4 hours if not measuring
+
             if(vbat < 3.3) {
                 LED_On(RED);
                 __delay_ms(20);
@@ -972,7 +1017,7 @@ void SleepObi() {
             
             SLEEPRATE = 128;
                         
-            unsigned lasts = tick;
+            uint64_t lasts = tick;
             while(tick < lasts + 32768*1) Sleep();
                 
             //plog("XXXXXXXXXXXXXXXXX");
@@ -1005,7 +1050,7 @@ void SleepObi() {
 
             SendStat();
                                    
-            unsigned last = tick;
+            uint64_t last = tick;
             while(tick < last + 32768) {
                 Sleep();
                 ProcRx();
@@ -1022,11 +1067,12 @@ void SleepObi() {
             }
             plog("GSR %lu NOT DETECTED", G);
 
+            disable_cont_adc();
             PowerOpamp(false);
             
             Sleep();
             
-            plog("Dormant RN");
+            plog("%llu Dormant RN", tick);
             DormantRN4020();
                 
             //log("Continue sleep"); 
@@ -1040,6 +1086,11 @@ void SleepObi() {
     PowerOpamp(true);
     SLEEPRATE = 128;
     USBOn();
+
+    sleeping = 0;
+    
+    SetCharData();
+
 
 }
 

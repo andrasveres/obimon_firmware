@@ -38,5 +38,6 @@ int adc_pop(uint32_t *a, uint64_t *ts);
 
 void initcontadc();
 int getcontadc(uint32_t *d);
+void enable_cont_adc();
 
 #endif  //ADC_H

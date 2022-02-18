@@ -160,8 +160,8 @@ void writeenable() {
         endcs();
         
         int s = readstatus();
-        if(s & 2 == 0) plog("NOT WRITE ENABLED");
-        plog("WE %x", s);
+        if((s & 2) == 0) plog("NOT WRITE ENABLED");
+        //plog("WE %x", s);
 }
 
 int waitbusy() {

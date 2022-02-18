@@ -44,6 +44,13 @@ static uint8_t writeBuffer[256];
 unsigned long long lastUsb; // last tick when usb was active
 unsigned long dumping = 0;
 
+extern uint64_t tick;
+extern char mac[20];
+
+int ota=0;
+
+//char usblog[128];
+
 /*********************************************************************
 * Function: void APP_DeviceCDCBasicDemoInitialize(void);
 *
@@ -130,12 +137,7 @@ void APP_DeviceCDCBasicDemoTasks()
 
                 // read status register 1
                 case '1': {                    
-                    char s1 = readstatus();
-                    char s2 = readstatus2();
-                    char s3 = readstatus3();
-                    
-                    sprintf((char*)writeBuffer, "1 %u %u %u", s1, s2, s3);
-
+                    sprintf(writeBuffer, "1 14"); // just a random number
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
                     break;
@@ -189,6 +191,15 @@ void APP_DeviceCDCBasicDemoTasks()
                     break;
                 }
 
+                // get MAC
+                case 'M': {
+                    sprintf(writeBuffer, "M %s", mac);
+
+                    putUSBUSART(writeBuffer,strlen(writeBuffer));
+
+                    break;
+                }
+                
                 // erase
                 case 'e': {
                     if(numBytesRead>2) {
@@ -238,19 +249,20 @@ void APP_DeviceCDCBasicDemoTasks()
 
                 // get/set group
                 case 'o': {
-                    if(numBytesRead>3) {
-                        ChangeGroup(readBuffer+2);                        
-                    }
+//                    if(numBytesRead>3) {
+//                        ChangeGroup(readBuffer+2);                        
+//                    }
 
-                    sprintf(writeBuffer, "o %s", group);
+                    sprintf(writeBuffer, "o nogroup");
 
                     putUSBUSART(writeBuffer,strlen(writeBuffer));
 
                     break;
                 }
                 
-                case 'O': {
+                case 'O': {                    
                     if(readBuffer[1]=='T' && readBuffer[2]=='A') {
+                        ota=1;
                         UpgradeRN();
                     }                   
                 }
@@ -280,6 +292,11 @@ void APP_DeviceCDCBasicDemoTasks()
 
                     waitbusy();
                     readmem(dumpaddr, writeBuffer+1, 64);
+
+                    //LOG Write header 8000630e ts 10033e001
+
+                    //int i;
+                    //for(i=0; i<4+8; i++) plog("%02i -> %02x", i, writeBuffer[i+1]); 
                     
                     putUSBUSART(writeBuffer,65);
                     break;
@@ -320,11 +337,23 @@ void APP_DeviceCDCBasicDemoTasks()
 
             }
             
-            if(tick - lastUsb > 32768) {
+            if(ota && printbuf[0]!=0) {
+                strncpy(writeBuffer, printbuf, 126);
+                strcat(writeBuffer,"\n");
+                printbuf[0]=0;
+                putUSBUSART(writeBuffer,strlen(writeBuffer));
+            }
+            
+            if(ota ==0 && tick - lastUsb > 32768) {
                 sprintf(writeBuffer, "Obimon %s", name);
                 putUSBUSART(writeBuffer,strlen(writeBuffer));
                 lastUsb = tick;
             }
+            
+            //if(usblog[0]!=0) {
+             //   putUSBUSART(usblog,strlen(usblog));
+             //   usblog[0]=0;
+            //}
         
 //#define TESTADC            
 #ifdef TESTADC
