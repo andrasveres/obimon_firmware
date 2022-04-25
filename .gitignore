@@ -2,6 +2,8 @@
 /obimon/obimon.X/dist/
 /obimon-usb-bootloader/MPLAB.X/build/
 /obimon-usb-bootloader/MPLAB.X/dist/
+/obimon/obimon.X/.generated_files/
+/obimon-usb-bootloader/MPLAB.X/.generated_files/
 
 
 obimon-usb-bootloader/MPLAB.X/nbproject
