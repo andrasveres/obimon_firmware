@@ -506,6 +506,15 @@ void ChangeName(char *n) {
     
     // need to BLE notify
     SetCharData();
+    
+    // set name
+    sendbt("SN,",0);    
+    sendbt(name,1);    
+    WaitResp();
+    if(btresp != AOK) {
+        plog("Warning command failed");
+    }
+
 }
 
 char* WaitLine() {
