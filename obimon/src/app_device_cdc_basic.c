@@ -34,6 +34,7 @@
 #include <app_device_cdc_basic.h>
 #include <usb_config.h>
 
+
 /** VARIABLES ******************************************************/
 
 static uint8_t readBuffer[CDC_DATA_OUT_EP_SIZE];

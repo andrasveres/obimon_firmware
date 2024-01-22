@@ -7,7 +7,8 @@
 #include <leds.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <app_device_cdc_basic.h>
+#include <app_device_cdc_basic.h> 
+
 
 /** CONFIGURATION Bits **********************************************/
 
@@ -62,6 +63,8 @@ char btbuf[180];
 
 char *compiledate;
 
+
+
 unsigned long memptr;      // current page to write to the flash
 
 uint64_t tick=0;
@@ -105,8 +108,8 @@ unsigned long eraseMem=0;
 char sleeping=0;
 
 unsigned long G=0;
-uint32_t acc=0;
-uint32_t maxacc=0;
+unsigned int acc=0;
+unsigned int maxacc=0;
 
 unsigned char protect[4];
 unsigned char page[256];
@@ -422,13 +425,18 @@ void InitInternalADC() {
 char *private_service = "43974957348793475977654321987654";
 
 char *ch_gsr =          "43789734979834798347983479887878";
-char *ch_data =         "43789734979834798347983479887879";
-char *ch_data_req =     "4378973497983479834798347988787a";
+char *ch_acc =         "43789734979834798347983479887879";
+//char *ch_data_req =     "4378973497983479834798347988787a";
 char *ch_name =         "4378973497983479834798347988787b";
 char *ch_keepalive =    "4378973497983479834798347988787c";
 char *ch_tick =         "4378973497983479834798347988787d";
+char *ch_status =       "4378973497983479834798347988787e";
+char *ch_version =       "4378973497983479834798347988787f";
 
 char handle_gsr[5];
+char handle_acc[5];
+
+uint8_t acc_hist[16];
 
 bool RxIdle() {
     return U2STAbits.RIDLE && (rxn==0) && (wptr == rptr);
@@ -705,77 +713,84 @@ void UpgradeRN() {
     }    
 }
 
-int ConfRN4020() {
-    
-    send("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
-    WaitResp();
-    if(btresp != AOK) {
-        return 3;
-    }
-
-        
-    //sendbt("SR,20000000"); //   set the RN4020 module as a peripheral and auto advertise
-    send("SR,00000100"); //  unfiltered observer    
-    WaitResp();
-    if(btresp != AOK) {
-        return 4;
-    }
-    
-    send("PZ"); //  Clean private Service
-    WaitResp();
-    if(btresp != AOK) {
-        return 5;
-    }
-
-    send("PS,%s\n", private_service); // set private service UUID
-    WaitResp();
-    if(btresp != AOK) return 6;
-
-    // send("PC,%s,12,04\n",ch_gsr); // set characterictic,readable+notify, 4 bytes
-    send("PC,%s,22,04\n",ch_gsr); // set characterictic,readable+notify+indicate, 4 bytes
-    WaitResp();
-    if(btresp != AOK) return 7;
-   
-    send("PC,%s,02,14\n",ch_name); // set characterictic,readable 20 bytes
-    WaitResp();
-    if(btresp != AOK) return 7;
-    
-    
-    send("U"); // unbond?
-    WaitResp();
-    if(btresp != AOK) {
-        plog("Warning Unbind cmd failed");
-    }
-    
-      
-    send("Q,1"); // BT bonding statusß
-    WaitResp();
-    if(btresp != AOK) {
-        plog("Warning command failed");
-    }
-    
-    plog("now reboot bt");
-    
-    send("R,1"); // reboot
-    __delay_ms(2000);
-    WaitResp();
-    WaitResp();
-
-    
-    //sendbt("-"); //  DEBUG echo
-    //__delay_ms(100);    
-
-    FindHandle(ch_gsr, handle_gsr);
-    //println("+"); //  DEBUG echo
-
-    // OK
-    return 0;
-}
+//int ConfRN4020() {
+//    
+//    send("SS,C0000001"); //  enable support of the Device Information, Battery and Private services
+//    WaitResp();
+//    if(btresp != AOK) {
+//        return 3;
+//    }
+//
+//        
+//    //sendbt("SR,20000000"); //   set the RN4020 module as a peripheral and auto advertise
+//    send("SR,00000100"); //  unfiltered observer    
+//    WaitResp();
+//    if(btresp != AOK) {
+//        return 4;
+//    }
+//    
+//    send("PZ"); //  Clean private Service
+//    WaitResp();
+//    if(btresp != AOK) {
+//        return 5;
+//    }
+//
+//    send("PS,%s\n", private_service); // set private service UUID
+//    WaitResp();
+//    if(btresp != AOK) return 6;
+//
+//    // send("PC,%s,12,04\n",ch_gsr); // set characterictic,readable+notify, 4 bytes
+//    send("PC,%s,22,04\n",ch_gsr); // set characterictic,readable+notify+indicate, 4 bytes
+//    WaitResp();
+//    if(btresp != AOK) return 7;
+//   
+//    send("PC,%s,02,14\n",ch_name); // set characterictic,readable 20 bytes
+//    WaitResp();
+//    if(btresp != AOK) return 7;
+//    
+//    
+//    send("U"); // unbond?
+//    WaitResp();
+//    if(btresp != AOK) {
+//        plog("Warning Unbind cmd failed");
+//    }
+//    
+//      
+//    send("Q,1"); // BT bonding statusß
+//    WaitResp();
+//    if(btresp != AOK) {
+//        plog("Warning command failed");
+//    }
+//    
+//    plog("now reboot bt");
+//    
+//    send("R,1"); // reboot
+//    __delay_ms(2000);
+//    WaitResp();
+//    WaitResp();
+//
+//    
+//    //sendbt("-"); //  DEBUG echo
+//    //__delay_ms(100);    
+//
+//    FindHandle(ch_gsr, handle_gsr);
+//    //println("+"); //  DEBUG echo
+//    
+//
+//
+//    // OK
+//    return 0;
+//}
 
 void SetCharData() {
     if(btv>=133) {
         send("SUW,%s,%s", ch_name, hexname); // here we use long format and not the handle! We should change it to handle
         WaitResp();
+        
+        // Write version and build to characteristic
+        send("SUW,%s,%02x%s", ch_version, btv, hexbuild); // here we use long format and not the handle! We should change it to handle
+        WaitResp();
+
     }
 
 }
@@ -811,9 +826,9 @@ int ConfRN4020_new() {
     WaitResp();
     if(btresp != AOK) return 7;
     
-    //send("PC,%s,10,14\n",ch_data); // set characterictic,notify, 20 bytes
-    //WaitResp();
-    //if(btresp != AOK) return 7;
+    send("PC,%s,32,14\n",ch_acc); // set characterictic,readable+notify+indication, 20 bytes
+    WaitResp();
+    if(btresp != AOK) return 7;
 
     send("PC,%s,12,14\n",ch_name); // set characterictic, read+notify, 20 bytes
     WaitResp();
@@ -823,7 +838,15 @@ int ConfRN4020_new() {
     WaitResp();
     if(btresp != AOK) return 7;    
     
-    send("PC,%s,12,0c\n",ch_tick); // set characterictic, read+notify, 12 bytes
+//    send("PC,%s,12,0c\n",ch_tick); // set characterictic, read+notify, 12 bytes
+//    WaitResp();
+//    if(btresp != AOK) return 7;    
+
+    send("PC,%s,12,0c\n",ch_status); // set characterictic, read+notify, 12 bytes: 1 byte voltage, 1 byte usbconnected
+    WaitResp();
+    if(btresp != AOK) return 7;    
+
+    send("PC,%s,12,14\n",ch_version); // set characterictic, read+notify, 12 bytes: 1 byte btversion, build in 19 bytes
     WaitResp();
     if(btresp != AOK) return 7;    
     
@@ -872,8 +895,11 @@ int ConfRN4020_new() {
     //__delay_ms(100);    
 
     FindHandle(ch_gsr, handle_gsr);
-    //println("+"); //  DEBUG echo
+    FindHandle(ch_acc, handle_acc);
 
+    //println("+"); //  DEBUG echo
+    
+   
     // OK
     return 0;
 }
@@ -906,6 +932,10 @@ void SetLedPattern() {
     
     if(measuring) {
         p = p + (p << 16L);        
+    }
+    
+    if(btconnected) {
+        p = p + (p << 8L);        
     }
         
     if(vbat<3.3) {               
@@ -1115,12 +1145,12 @@ void BuildToHex() {
 
 void Adverstise() {
     if(sleeping) { 
-       send("A,0014,0064"); // interval 20 msec, duration 200 msec 
+       if(training==0) send("A,0014,0064"); // interval 20 msec, duration 200 msec 
     } else {
         
        if(btconnected == 0 && measuring && training) {
            //send("A,0032,03e8"); // interval 50 msec, duration 1000 msec            
-           send("A,0032,0064"); // interval 50 msec, duration 100 msec    
+           send("A,0050,07D0"); // interval 80 msec, duration 2000 msec    
 
        }
        else {
@@ -1241,10 +1271,10 @@ void SendSession() {
     nsent++;
     Adverstise();    
     
-    if(!sleeping) {
-        send("SUW,%s,%08lx%016llx", ch_tick, sessionid, tick); // here we use long format and not the handle! We should change it to handle
-        WaitLine();
-    }
+//    if(!sleeping) {
+//        send("SUW,%s,%08lx%016llx", ch_tick, sessionid, tick); // here we use long format and not the handle! We should change it to handle
+//        WaitLine();
+//    }
 
 }
 
@@ -1389,41 +1419,61 @@ unsigned long long last_gsr_send = 0;
 int iii=0;
 void SendGsr(unsigned long gsr, unsigned char acc) {
     char s[60];
-        
     
     unsigned long d = gsr;
     d |= ((unsigned long)acc)<<24;
     
     iii++;
     
-    if(btconnected && (iii % 2 == 0)) {
-        send("SHW,%s,%08lx", handle_gsr, d); 
-        WaitResp();
-    }
-    
-    if(btconnected == 0 && training) {
+    if((iii % 2) == 0) {
+        if(btconnected) {
+            send("SHW,%s,%08lx", handle_gsr, d); 
+            WaitResp();
+            
+            
+            SendAcc();
+        }
         
-    }
+        maxacc=0;
 
-    //if(btconnected) return;
+    }
     
-    if(acc > maxacc) maxacc = acc;
-        
+    // if(!btconnected) maxacc=0;
+    
+    //if(btconnected) return;
+            
     long period = 32768L;
     if(btv < 133) period = 32768/4;
     
     if (tick - last_gsr_send >= period) {
-        maxacc=0;
         last_gsr_send = tick;
 
-        sprintf(s,"22%04x%08lx", nsent, d);
-        SetAdvData(s);
+        if(training==0) {
+            sprintf(s,"22%04x%08lx", nsent, d);
+            SetAdvData(s);
+        }
     
         //send("N,22%04x%08lx", nsent, d);    
         nsent++;    
-        Adverstise();
+        
+        if(training && btconnected == 0 || training == 0) {
+            Adverstise();
+        }
     }
     
+}
+
+
+void SendAcc() {
+    char s[60];
+    
+    if(!btconnected) return;
+    
+    send("SHW,%s,%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", handle_acc, acc_hist[0], acc_hist[1], acc_hist[2], acc_hist[3], acc_hist[4], acc_hist[5], acc_hist[6], acc_hist[7], acc_hist[8], acc_hist[9],
+            acc_hist[10], acc_hist[11], acc_hist[12], acc_hist[13], acc_hist[14], acc_hist[15]); 
+    WaitResp();
+    
+       
 }
 
 void ReadVoltage() {

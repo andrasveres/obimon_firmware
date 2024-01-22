@@ -40,8 +40,8 @@ unsigned long dumpaddr=0;
 void SleepObi();
 void WriteGsr(uint64_t ts, uint32_t G, uint32_t acc);
 
-extern uint32_t acc;
-extern uint32_t maxacc;
+extern unsigned int acc;
+extern unsigned int maxacc;
 extern bool opamp;
 extern unsigned int training;
 extern int measuring ;
@@ -54,6 +54,8 @@ extern int n_blocks_req;
 extern char* ch_data;
 extern char *ch_name;
 extern char *ch_tick;
+extern char *ch_status;
+extern char *ch_version;
 
 extern uint32_t sessionid;
 extern unsigned long dumping;
@@ -87,6 +89,10 @@ void __attribute__((interrupt,auto_psv)) _T1Interrupt(void)
     IFS0bits.T1IF = 0; //Reset Timer1 interrupt flag
 
     tick += PR1 + 1; // update time first
+    
+    if(SLEEPRATE==1) {
+        plog("XXX %u", PR1);
+    }
 
     //unsigned long long remainder = tick % (32768 / DT);
 
@@ -198,9 +204,12 @@ void __attribute__ ((interrupt, no_auto_psv)) _U2RXInterrupt(void) {
         char b = U2RXREG;
                
         if(b=='\n' || b=='\r' || b==0) {
+            
+            //plog("N: %i", b)
             if(rxn>0) {
                 
                 rxbuf[wptr][rxn]=0;
+                rxn = 0;
                 
                 int newwptr = wptr + 1;
                 
@@ -214,10 +223,13 @@ void __attribute__ ((interrupt, no_auto_psv)) _U2RXInterrupt(void) {
                                   
             }
 
-            rxn = 0;
+            //rxn = 0;
 
             continue;
         }
+        
+        //plog("N: %c", b)
+
 
         rxbuf[wptr][rxn] = b;
         rxn++;
@@ -396,6 +408,18 @@ MAIN_RETURN main(void)
         lis_cfg();
         lis_reg23();
         lis_hpfilter();
+        
+        lis_click_i1click();
+        lis_click_latch();
+        lis_click_cgf();
+        lis_click_ths();
+        lis_click_timelimit();
+        
+        lis_fifo_en();
+        lis_fifo_ctrl();
+    } else {
+        plog("LIS NOT detected");
+
     }
     
     //while(1) {
@@ -408,13 +432,26 @@ MAIN_RETURN main(void)
     InitT1();
     
     // Wait for 32khz clock to stabilize
+    
+    int ii=0;
     while(1) {
+        
         unsigned long long t = tick;
         __delay_ms(100);
+        ii++;
+        
         unsigned long dt = tick - t;        
-        plog("D %lu", dt);
+        plog("RTC init %lu ii %u", dt, ii);
 
         if(dt > 32768 / 10 / 2) break;
+        
+        if(ii>50) {
+            // 5 sec passed still no clock
+            plog("RTC failed, reset timer!");
+            InitT1();
+            ii = 0;
+
+        }
     } 
     
     
@@ -763,8 +800,20 @@ MAIN_RETURN main(void)
             //plog("G %llu %lu measuring %u", ts, G, measuring);
             
             if (lis) {
-               acc = lis_readacc();
-               if (acc > maxacc) maxacc = acc;
+                acc = 0;
+               //lis_click_read();
+               
+               unsigned int nacc = lis_read_fifo_src(); 
+               if(nacc>0) {
+                  //plog("NACC %u", nacc);
+                   acc = lis_read_fifo(nacc);
+                   if (acc > maxacc) maxacc = acc;
+                   if(maxacc>255) maxacc=255;
+                   
+                   //plog("X %u %u", acc, maxacc);
+
+               }
+               
             }
             
             if (G > 50 && G < 140000) {
@@ -777,9 +826,11 @@ MAIN_RETURN main(void)
             } 
                                        
             if (measuring) {
-                SendGsr(G,acc);            
-                WriteGsr(ts, G, acc);
                 
+                //plog("ACC %u", maxacc);
+                SendGsr(G,maxacc);            
+                WriteGsr(ts, G, maxacc);
+                                
 //                int dt = ts - lastwrite;
 //                //if(ts-lastwrite>4096) 
 //                plog("                DTS %llu %llu %u", ts, lastwrite, dt);
@@ -793,6 +844,15 @@ MAIN_RETURN main(void)
         
         if(tick - last_stat > 7*32768L) {
             if(training == 0) SendStat();
+            else {
+                // send battery and usbconnected 
+                
+                unsigned int b = (unsigned int) (vbat*100.0);
+                unsigned char u = (unsigned char) USB_BUS_SENSE;
+
+                send("SUW,%s,%04x%02x", ch_status, b, u); // here we use long format and not the handle! We should change it to handle
+                WaitLine();
+            }
             last_stat = tick;
             
             Hack(); // Reset every 4 hours if not measuring
@@ -819,7 +879,7 @@ MAIN_RETURN main(void)
 //           if(res == 0) plog("Retr failed");
 //        }
         
-        if(btconnected && tick - lastKeepAlive > 10 *32768L) {
+        if(btconnected && tick - lastKeepAlive > 60 *32768L) {
             plog("\t\t\tBT TIMEOUT");
             sendbt("K",1); // kill konnection
             WaitResp(); // AAA
@@ -955,8 +1015,8 @@ void SleepObi() {
     int n= 0;
     
     while(1) {
-        plog("%llu SLEEP LOOP -------------", tick);
         
+        plog("%llu SLEEP LOOP ----", tick);
 
         ProcRx();
             
@@ -978,6 +1038,8 @@ void SleepObi() {
             
         SLEEPRATE = 1;
         Sleep();
+        //plog("T1 %llu", tick);
+        //unsigned long long sleepstart = tick;
 
         n++;
         
@@ -1006,60 +1068,37 @@ void SleepObi() {
                         
             // SetLedPattern();
             
-            plog("Wake RN");
-            WakeRN4020();
-            
-            /*
-            char *b=WaitLine();
-            log("---- '%s'", b);
-            if(b!=NULL) ReleaseRxLine();
-            */
-            
+            if(training==0) {
+                plog("Wake RN");
+                WakeRN4020();
+            }
+                        
             SLEEPRATE = 128;
                         
             uint64_t lasts = tick;
             while(tick < lasts + 32768*1) Sleep();
-                
-            //plog("XXXXXXXXXXXXXXXXX");
-            
-            //int i;
-            //for(i=0; i<1000; i++) Sleep();
-            
+                            
             clear_adc_buf(); // clear early data
-
-            // WriteLogFlash();
-            
-//            int r = triggeradc();
-//            if(r ==0) {
-//                plog("Unexpected, retrigger");
-//                r = triggeradc();
-//               if(r == 0) plog("Retr failed");
-//            }
                         
             uint32_t a;
             uint64_t ts;
             while(adc_pop(&a, &ts)==0); // wait for first data
                                 
             G = CalcGsr(a);
-            
-            
+                        
             ReadVoltage(); 
             if(last_charge_bat == 0) last_charge_bat = vbat;
 
-            //BatCheck();
-
-            SendStat();
+            if(training == 0) {
+                SendStat();
                                    
-            uint64_t last = tick;
-            while(tick < last + 32768) {
-                Sleep();
-                ProcRx();
-            }        
-            //SendName();                            
-            //Sleep();
-            //SendBatMem();
-            //Sleep();
-            //SendBuild();
+                uint64_t last = tick;
+                while(tick < last + 32768) {
+                    Sleep();
+                    ProcRx();
+                }        
+                
+            }
                                                
             if(G>50 && G<140000) {
                 plog("GSR %lu OK exit sleep", G);
@@ -1072,16 +1111,24 @@ void SleepObi() {
             
             Sleep();
             
-            plog("%llu Dormant RN", tick);
-            DormantRN4020();
+            if(training==0) {
+                plog("%llu Dormant RN", tick);
+                DormantRN4020();
+            }
                 
-            //log("Continue sleep"); 
-            
+            plog("%llu Continue SLEEP", tick);
+
             nextstat = NextStatTime();
-    
+
         }            
            
     }    
+    
+    if(training) {
+        // if training, we switch on BT now
+        plog("Wake RN");
+        WakeRN4020();
+    }
 
     PowerOpamp(true);
     SLEEPRATE = 128;
@@ -1093,6 +1140,7 @@ void SleepObi() {
 
 
 }
+
 
 bool USER_USB_CALLBACK_EVENT_HANDLER(USB_EVENT event, void *pdata, uint16_t size)
 {

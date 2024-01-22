@@ -4,8 +4,11 @@
 #include "mem_s25fl164k.h"
 #include <system.h>
 #include <libpic30.h>
+#include <stdint.h>
 
 #define D 10
+
+extern uint8_t acc_hist[16];
 
 void initflashspi() {
     InitSPI1();
@@ -328,7 +331,8 @@ void lis_cfg() {
 
 
     bytetrx(0x20);
-    bytetrx(0b00100111); // 0010 = 10Hz, 0 - not low power, 111 = all axes enabled
+    // bytetrx(0b00100111); // 0010 = 10Hz, 0 - not low power, 111 = all axes enabled
+    bytetrx(0b01110111); // 0111 = 400Hz, 0 - not low power, 111 = all axes enabled
 
     __delay_us(D);
     LIS_CS = 1;
@@ -347,7 +351,8 @@ void lis_hpfilter() {
 
 
     bytetrx(0x21);
-    bytetrx(0b00001000);
+    //bytetrx(0b00001000);
+    bytetrx(0b00001100); // HP filter enabled also for Click detection
 
     __delay_us(D);
     LIS_CS = 1;
@@ -366,10 +371,196 @@ void lis_reg23() {
 
 
     bytetrx(0x23);
-    bytetrx(0b00001000); // endian + high res (endian must select endian)
+    bytetrx(0b00001000); // Full scale +/- 2G, endian + high res (endian must select endian)
 
     __delay_us(D);
     LIS_CS = 1;
+    
+}
+
+
+void lis_click_i1click() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(1);
+
+    bytetrx(0x22);
+    bytetrx(1); // enable single click interrupt
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_click_latch() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(1);
+
+    bytetrx(0x24);
+    bytetrx(8); // enable interrupt latched
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_click_cgf() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(1);
+
+    bytetrx(0x38);
+    bytetrx(0b00010101); // enable single click detection on all axes
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_click_ths() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(1);
+
+    bytetrx(0x3a);
+    bytetrx(80); // click threshold
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_click_timelimit() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    
+    __delay_ms(1);
+
+    // TLI7 through TLI0 define the maximum time interval that can elapse between the start of
+    // the click-detection procedure (the acceleration on the selected channel exceeds the
+    //programmed threshold) and when the acceleration falls back below the threshold.
+    
+    bytetrx(0x3b);
+    bytetrx(50); // @400Hz ODR
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+unsigned char lis_click_read() {
+    __delay_us(D);
+    LIS_CS = 1; 
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+
+    unsigned char d;
+    
+    bytetrx(0x39 | 128 );
+    d = bytetrx(0); 
+        
+    //plog("acc %i %i %i %i", x, y, z, a);
+    
+    unsigned click_xyz = d & 7;
+    unsigned click_sign = (d & 8) != 0;
+    unsigned single_en = (d & 16) != 0;
+    unsigned double_en = (d & 32) != 0;
+    unsigned int_act = (d & 64) != 0;
+
+    if(d!=0) {
+        plog("CLICK xyz %u sign %u en s:%u d:%u int_act %u", click_xyz, click_sign, single_en,
+            double_en, int_act);
+    }
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+    return d;    
+}
+
+
+void lis_fifo_en() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    __delay_ms(1);
+
+    bytetrx(0x24);
+    bytetrx(64); // enable FIFO
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+void lis_fifo_ctrl() {
+    __delay_us(D);
+    LIS_CS = 1;
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+    __delay_ms(1);
+
+    bytetrx(0x2e);
+    bytetrx(128); // stream FIFO mode (and threshold set to 0)
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+}
+
+int lis_read_fifo_src() {
+    __delay_us(D);
+    LIS_CS = 1; 
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+
+    int x,y,z;
+    
+    bytetrx(0x2f | 128);
+    unsigned char d = bytetrx(0); 
+    
+    d = d & 0b11111;  // number of samples in FIFO
+    
+    __delay_us(D);
+    LIS_CS = 1;
+    
+    //plog("IMU %d", d);
+    
+    return d;
     
 }
 
@@ -407,5 +598,64 @@ int lis_readacc() {
     LIS_CS = 1;
     
     return a;
+    
+}
+
+int lis_read_fifo(int n) {
+    int i, d;
+    int x[32],y[32],z[32];
+    int maxa=0;
+
+    
+    __delay_us(D);
+    LIS_CS = 1; 
+    __delay_us(D);
+
+    LIS_CS = 0;
+    __delay_us(D);
+
+    bytetrx(0x28 | 128 | 64);
+
+    if(n>32) n = 32;
+    
+    for(i=0; i<n; i++) {
+        d = bytetrx(0) + (bytetrx(0)<<8);
+        x[i] = abs(d / 32);
+
+        d = bytetrx(0) + (bytetrx(0)<<8);
+        y[i] = abs(d / 32);
+        
+        d = bytetrx(0) + (bytetrx(0)<<8);
+        z[i] = abs(d / 32);
+
+        //int a = x+y+z;
+        
+    }
+    
+    for(i=0; i<16; i++) acc_hist[i]=0;
+    
+    for(i=0; i<n; i++) {
+        int32_t a = x[i]+y[i]+z[i];
+        
+        if(a>maxa) {
+            maxa = a;
+        }
+                
+        acc_hist[i/2] = +a;
+        
+        //if(a>0) {
+        //    plog("FIFO %u: %i %i %i", i, x[i],y[i],z[i]);
+        //}
+    }
+    
+    //plog("acc %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d", acc_hist[0], acc_hist[1], acc_hist[2], acc_hist[3], acc_hist[4], acc_hist[5], acc_hist[6], acc_hist[7], acc_hist[8], acc_hist[9],
+    //        acc_hist[10], acc_hist[11], acc_hist[12], acc_hist[13], acc_hist[14], acc_hist[15]);
+
+    __delay_us(D);
+    LIS_CS = 1;
+    
+    // plog("FIFO ACC %u", maxa);
+    
+    return maxa;
     
 }
