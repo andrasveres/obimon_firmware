@@ -13,3 +13,8 @@ obimon-usb-bootloader/MPLAB.X/nbproject
 obimon/obimon.X/nbproject
 !obimon/obimon.X/nbproject/configurations.xml
 !obimon/obimon.X/nbproject/project.xml
+
+.DS_Store
+*DS_Store
+configurations.xml
+obimon-usb-bootloader/MPLAB.X/nbproject/configurations.xml
